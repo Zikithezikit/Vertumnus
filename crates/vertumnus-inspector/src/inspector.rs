@@ -960,16 +960,17 @@ fn resolve_type(type_val: &Value) -> String {
                 }
 
                 "slice" => {
-                    let inner_type = inner
-                        .get("inner")
-                        .map(resolve_type)
-                        .unwrap_or_else(|| "unknown".to_string());
+                    // Slice inner type is the entire value, not under "inner" key
+                    // Example: {"slice": {"primitive": "u8"}} means &[u8]
+                    let inner_type = resolve_type(inner);
                     format!("[{}]", inner_type)
                 }
 
                 "array" => {
+                    // Array has "type" and "len" fields
+                    // Example: {"array": {"type": {"primitive": "u8"}, "len": "10"}}
                     let inner_type = inner
-                        .get("inner")
+                        .get("type")
                         .map(resolve_type)
                         .unwrap_or_else(|| "unknown".to_string());
                     let len = inner.get("len").and_then(|v| v.as_str()).unwrap_or("?");
