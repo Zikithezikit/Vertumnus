@@ -3,16 +3,18 @@ name = "vertumnus-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Vertumnus CLI — wrap Rust crates into Python packages"
+repository.workspace = true
 
 [[bin]]
 name = "vertumnus"
 path = "src/main.rs"
 
 [dependencies]
-vertumnus-inspector = { path = "../vertumnus-inspector" }
-vertumnus-mapper = { path = "../vertumnus-mapper" }
-vertumnus-generator = { path = "../vertumnus-generator" }
-vertumnus-builder = { path = "../vertumnus-builder" }
+vertumnus-inspector.workspace = true
+vertumnus-mapper.workspace = true
+vertumnus-generator.workspace = true
+vertumnus-builder.workspace = true
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 serde_json = "1"

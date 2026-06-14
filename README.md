@@ -14,7 +14,7 @@ You get a fully typed Python package backed by native Rust code.
 ## Install
 
 ```bash
-cargo install vertumnus-cli --git https://github.com/Zikithezikit/Vertumnus.git
+cargo install vertumnus-cli
 ```
 
 > Nightly Rust required (uses `rustdoc JSON` for crate inspection).

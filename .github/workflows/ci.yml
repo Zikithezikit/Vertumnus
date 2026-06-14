@@ -1,9 +1,10 @@
-# Vertumnus CI — Build, Test & Publish
+# Vertumnus CI — Test & Publish to crates.io
 #
-# Runs on tagged releases (v*) to build wheels and publish to PyPI.
-# Manual trigger also available via workflow_dispatch.
+# Runs on tagged releases (v*.*.*) and on manual trigger.
+# Tests run on all platforms, then publishes all workspace crates to crates.io.
+# Set CARGO_REGISTRY_TOKEN in your repo secrets to enable publishing.
 
-name: Build & Publish
+name: CI
 
 on:
   push:
@@ -126,3 +127,30 @@ jobs:
           assert ps.is_ok() == True
           print("string-utils E2E passed!")
           EOF
+
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: [test, e2e]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Publish vertumnus-inspector
+        run: cargo publish -p vertumnus-inspector --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish vertumnus-mapper
+        run: cargo publish -p vertumnus-mapper --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish vertumnus-builder
+        run: cargo publish -p vertumnus-builder --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish vertumnus-generator
+        run: cargo publish -p vertumnus-generator --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish vertumnus-cli
+        run: cargo publish -p vertumnus-cli --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
