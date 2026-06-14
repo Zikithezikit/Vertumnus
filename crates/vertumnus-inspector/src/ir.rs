@@ -222,22 +222,28 @@ mod tests {
             vertumnus_ir_version: "0.1".to_string(),
             crate_name: "test_crate".to_string(),
             crate_version: "1.0.0".to_string(),
-            items: vec![
-                IrItem::Function(FunctionItem {
-                    kind: IrItemKind::Function,
-                    name: "add".to_string(),
-                    doc: "Adds two integers.".to_string(),
-                    inputs: vec![
-                        FunctionParameter { name: "a".to_string(), type_str: "i64".to_string() },
-                        FunctionParameter { name: "b".to_string(), type_str: "i64".to_string() },
-                    ],
-                    output: IrType { type_str: "i64".to_string() },
-                    is_unsafe: false,
-                    is_async: false,
-                    has_generics: false,
-                    visibility: "public".to_string(),
-                }),
-            ],
+            items: vec![IrItem::Function(FunctionItem {
+                kind: IrItemKind::Function,
+                name: "add".to_string(),
+                doc: "Adds two integers.".to_string(),
+                inputs: vec![
+                    FunctionParameter {
+                        name: "a".to_string(),
+                        type_str: "i64".to_string(),
+                    },
+                    FunctionParameter {
+                        name: "b".to_string(),
+                        type_str: "i64".to_string(),
+                    },
+                ],
+                output: IrType {
+                    type_str: "i64".to_string(),
+                },
+                is_unsafe: false,
+                is_async: false,
+                has_generics: false,
+                visibility: "public".to_string(),
+            })],
         };
 
         let json = ir.to_json_pretty().unwrap();

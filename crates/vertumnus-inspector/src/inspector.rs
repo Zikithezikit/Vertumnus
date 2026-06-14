@@ -12,9 +12,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::ir::{
-    EnumItem, EnumVariant, FieldVisibility, FunctionItem, FunctionParameter,
-    ImplItem, IntermediateRepresentation, IrItem, IrItemKind, IrType, StructField,
-    StructItem, TraitItem,
+    EnumItem, EnumVariant, FieldVisibility, FunctionItem, FunctionParameter, ImplItem,
+    IntermediateRepresentation, IrItem, IrItemKind, IrType, StructField, StructItem, TraitItem,
 };
 
 /// Errors that can occur during crate inspection.
@@ -48,9 +47,9 @@ pub fn inspect_crate(crate_path: &Path) -> Result<IntermediateRepresentation, In
 /// Run `cargo +nightly rustdoc -- -Z unstable-options --output-format json` and
 /// return the raw JSON string of the primary crate.
 fn run_rustdoc_json(crate_path: &Path) -> Result<String, InspectError> {
-    let canonical = crate_path.canonicalize().map_err(|e| {
-        InspectError::CargoRustdocFailed(format!("Cannot resolve path: {e}"))
-    })?;
+    let canonical = crate_path
+        .canonicalize()
+        .map_err(|e| InspectError::CargoRustdocFailed(format!("Cannot resolve path: {e}")))?;
 
     let output = Command::new("cargo")
         .args([
@@ -494,13 +493,16 @@ fn resolve_inner(item: &RustdocItem) -> Option<InnerItem> {
         }
         "impl" => {
             let for_type = inner_value.get("for")?.clone();
-            let trait_type = inner_value.get("trait").and_then(|v| {
-                if v.is_null() {
-                    None
-                } else {
-                    Some(v.clone())
-                }
-            });
+            let trait_type =
+                inner_value.get("trait").and_then(
+                    |v| {
+                        if v.is_null() {
+                            None
+                        } else {
+                            Some(v.clone())
+                        }
+                    },
+                );
             let method_ids = inner_value
                 .get("items")
                 .and_then(|v| v.as_array())
@@ -514,9 +516,7 @@ fn resolve_inner(item: &RustdocItem) -> Option<InnerItem> {
                         .collect()
                 })
                 .unwrap_or_default();
-            let is_synthetic = inner_value
-                .get("is_synthetic")
-                .and_then(|v| v.as_bool());
+            let is_synthetic = inner_value.get("is_synthetic").and_then(|v| v.as_bool());
 
             Some(InnerItem::Impl(RustdocImplInfo {
                 for_type,
@@ -550,7 +550,11 @@ fn convert_function(item: &RustdocItem, func: &RustdocFunction) -> Option<Functi
         .as_ref()
         .map(|o| {
             let s = resolve_type(o);
-            if s.is_empty() { "()".to_string() } else { s }
+            if s.is_empty() {
+                "()".to_string()
+            } else {
+                s
+            }
         })
         .unwrap_or_else(|| "()".to_string());
 
@@ -885,7 +889,11 @@ fn resolve_type(type_val: &Value) -> String {
                     .as_str()
                     .map(|s| {
                         // Map rustdoc's unit type representation
-                        if s == "()" { "()".to_string() } else { s.to_string() }
+                        if s == "()" {
+                            "()".to_string()
+                        } else {
+                            s.to_string()
+                        }
                     })
                     .unwrap_or_else(|| "unknown_primitive".to_string()),
 
@@ -896,15 +904,20 @@ fn resolve_type(type_val: &Value) -> String {
                 }
 
                 "resolved_path" => {
-                    let path = inner.get("path").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let path = inner
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
                     let args = inner.get("args").and_then(|a| {
                         // Skip null args
-                        if a.is_null() { None } else { Some(a) }
+                        if a.is_null() {
+                            None
+                        } else {
+                            Some(a)
+                        }
                     });
 
-                    let args_str = args
-                        .map(resolve_angle_bracketed_args)
-                        .unwrap_or_default();
+                    let args_str = args.map(resolve_angle_bracketed_args).unwrap_or_default();
 
                     if args_str.is_empty() {
                         path.to_string()
@@ -959,10 +972,7 @@ fn resolve_type(type_val: &Value) -> String {
                         .get("inner")
                         .map(resolve_type)
                         .unwrap_or_else(|| "unknown".to_string());
-                    let len = inner
-                        .get("len")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("?");
+                    let len = inner.get("len").and_then(|v| v.as_str()).unwrap_or("?");
                     format!("[{}; {}]", inner_type, len)
                 }
 
@@ -1000,12 +1010,7 @@ fn resolve_type(type_val: &Value) -> String {
                     let bounds = inner
                         .get("bounds")
                         .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .map(resolve_type)
-                                .collect::<Vec<_>>()
-                                .join(" + ")
-                        })
+                        .map(|arr| arr.iter().map(resolve_type).collect::<Vec<_>>().join(" + "))
                         .unwrap_or_default();
                     format!("dyn {}", bounds)
                 }
@@ -1014,12 +1019,7 @@ fn resolve_type(type_val: &Value) -> String {
                     let bounds = inner
                         .get("bounds")
                         .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .map(resolve_type)
-                                .collect::<Vec<_>>()
-                                .join(" + ")
-                        })
+                        .map(|arr| arr.iter().map(resolve_type).collect::<Vec<_>>().join(" + "))
                         .unwrap_or_default();
                     format!("impl {}", bounds)
                 }
@@ -1040,11 +1040,12 @@ fn resolve_type(type_val: &Value) -> String {
                 "never" => "!".to_string(),
 
                 "qualified_path" => {
-                    let path = inner.get("path").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let path = inner
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
                     let args = inner.get("args");
-                    let args_str = args
-                        .map(resolve_angle_bracketed_args)
-                        .unwrap_or_default();
+                    let args_str = args.map(resolve_angle_bracketed_args).unwrap_or_default();
                     if args_str.is_empty() {
                         path.to_string()
                     } else {

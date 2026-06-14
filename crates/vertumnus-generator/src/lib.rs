@@ -27,8 +27,8 @@ pub mod codegen;
 pub mod generator;
 pub mod stubs;
 
-pub use generator::{Generator, GeneratorConfig, GeneratedFiles, GenError};
 pub use codegen::GeneratedRust;
+pub use generator::{GenError, GeneratedFiles, Generator, GeneratorConfig};
 pub use stubs::GeneratedStubs;
 
 /// Convenience function: generate bindings from an annotated IR with a package name.
@@ -41,7 +41,10 @@ pub use stubs::GeneratedStubs;
 ///
 /// # Returns
 /// Generated files containing Rust glue code, Python stubs, and a shim module.
-pub fn generate(annotated: &vertumnus_mapper::annotated_ir::AnnotatedIr, package_name: &str) -> Result<GeneratedFiles, GenError> {
+pub fn generate(
+    annotated: &vertumnus_mapper::annotated_ir::AnnotatedIr,
+    package_name: &str,
+) -> Result<GeneratedFiles, GenError> {
     let config = GeneratorConfig {
         package_name: package_name.to_string(),
         native_module_name: "_core".to_string(),
@@ -55,8 +58,8 @@ pub fn generate(annotated: &vertumnus_mapper::annotated_ir::AnnotatedIr, package
 mod tests {
     use super::*;
     use vertumnus_inspector::ir::{
-        EnumItem, EnumVariant, FieldVisibility, FunctionItem, IntermediateRepresentation,
-        IrItem, IrItemKind, IrType, StructField, StructItem,
+        EnumItem, EnumVariant, FieldVisibility, FunctionItem, IntermediateRepresentation, IrItem,
+        IrItemKind, IrType, StructField, StructItem,
     };
     use vertumnus_mapper::map_ir;
 
@@ -72,13 +75,17 @@ mod tests {
                     doc: "Adds two integers.".to_string(),
                     inputs: vec![
                         ::vertumnus_inspector::ir::FunctionParameter {
-                            name: "a".to_string(), type_str: "i64".to_string(),
+                            name: "a".to_string(),
+                            type_str: "i64".to_string(),
                         },
                         ::vertumnus_inspector::ir::FunctionParameter {
-                            name: "b".to_string(), type_str: "i64".to_string(),
+                            name: "b".to_string(),
+                            type_str: "i64".to_string(),
                         },
                     ],
-                    output: IrType { type_str: "i64".to_string() },
+                    output: IrType {
+                        type_str: "i64".to_string(),
+                    },
                     is_unsafe: false,
                     is_async: false,
                     has_generics: false,
@@ -109,8 +116,16 @@ mod tests {
                     name: "Direction".to_string(),
                     doc: "Cardinal directions.".to_string(),
                     variants: vec![
-                        EnumVariant { name: "North".to_string(), fields: vec![], discriminant: None },
-                        EnumVariant { name: "South".to_string(), fields: vec![], discriminant: None },
+                        EnumVariant {
+                            name: "North".to_string(),
+                            fields: vec![],
+                            discriminant: None,
+                        },
+                        EnumVariant {
+                            name: "South".to_string(),
+                            fields: vec![],
+                            discriminant: None,
+                        },
                     ],
                     methods: vec![],
                     has_lifetimes: false,

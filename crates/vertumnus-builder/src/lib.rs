@@ -147,15 +147,13 @@ pub fn scaffold_all(config: &BuilderConfig) -> Result<Vec<PathBuf>, BuildError> 
     // Write pyproject.toml
     let pyproject = generate_pyproject_toml(config);
     let pyproject_path = config.output_dir.join("pyproject.toml");
-    std::fs::write(&pyproject_path, &pyproject)
-        .map_err(BuildError::WritePyprojectToml)?;
+    std::fs::write(&pyproject_path, &pyproject).map_err(BuildError::WritePyprojectToml)?;
     written.push(pyproject_path);
 
     // Write Cargo.toml
     let cargo_toml = generate_cargo_toml(config, &abs_crate_path);
     let cargo_path = config.output_dir.join("Cargo.toml");
-    std::fs::write(&cargo_path, &cargo_toml)
-        .map_err(BuildError::WriteCargoToml)?;
+    std::fs::write(&cargo_path, &cargo_toml).map_err(BuildError::WriteCargoToml)?;
     written.push(cargo_path);
 
     Ok(written)
@@ -321,15 +319,13 @@ pub fn scaffold_ci(config: &BuilderConfig) -> Result<PathBuf, BuildError> {
     let workflow = generate_ci_workflow(config);
 
     let workflows_dir = config.output_dir.join(".github").join("workflows");
-    std::fs::create_dir_all(&workflows_dir)
-        .map_err(|e| BuildError::CreateDirFailed {
-            path: workflows_dir.clone(),
-            err: e,
-        })?;
+    std::fs::create_dir_all(&workflows_dir).map_err(|e| BuildError::CreateDirFailed {
+        path: workflows_dir.clone(),
+        err: e,
+    })?;
 
     let workflow_path = workflows_dir.join("build.yml");
-    std::fs::write(&workflow_path, &workflow)
-        .map_err(BuildError::WriteCiWorkflow)?;
+    std::fs::write(&workflow_path, &workflow).map_err(BuildError::WriteCiWorkflow)?;
 
     Ok(workflow_path)
 }
@@ -342,7 +338,10 @@ pub fn scaffold_ci(config: &BuilderConfig) -> Result<PathBuf, BuildError> {
 ///
 /// # Returns
 /// Path to the built wheel file, if it can be determined.
-pub fn run_maturin_build(config: &BuilderConfig, release: bool) -> Result<Option<PathBuf>, BuildError> {
+pub fn run_maturin_build(
+    config: &BuilderConfig,
+    release: bool,
+) -> Result<Option<PathBuf>, BuildError> {
     // Check if maturin is available
     let maturin_check = Command::new("maturin")
         .arg("--version")
@@ -415,7 +414,9 @@ pub fn run_maturin_develop(config: &BuilderConfig) -> Result<(), BuildError> {
         .arg("develop")
         .current_dir(&config.output_dir)
         .output()
-        .map_err(|e| BuildError::MaturinDevelopFailed(format!("Failed to execute maturin develop: {e}")))?;
+        .map_err(|e| {
+            BuildError::MaturinDevelopFailed(format!("Failed to execute maturin develop: {e}"))
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -495,7 +496,11 @@ mod tests {
         let crate_dir = create_temp_dir();
 
         // Create a minimal Cargo.toml in the faux crate dir
-        fs::write(crate_dir.join("Cargo.toml"), "[package]\nname = \"test-crate\"\n").unwrap();
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            "[package]\nname = \"test-crate\"\n",
+        )
+        .unwrap();
 
         let config = BuilderConfig {
             output_dir: out_dir.clone(),
@@ -613,7 +618,10 @@ mod tests {
         assert!(content.contains("ubuntu-latest"));
         assert!(content.contains("macos-latest"));
         assert!(content.contains("windows-latest"));
-        assert!(content.contains("PYPI_API_TOKEN"), "Expected PYPI_API_TOKEN (all-caps GitHub secret) in content");
+        assert!(
+            content.contains("PYPI_API_TOKEN"),
+            "Expected PYPI_API_TOKEN (all-caps GitHub secret) in content"
+        );
         assert!(content.contains("python-version"));
         assert!(content.contains("3.8"));
         assert!(content.contains("3.12"));

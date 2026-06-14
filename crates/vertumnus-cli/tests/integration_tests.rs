@@ -80,17 +80,13 @@ fn test_inspect_simple_math() {
     let workspace = workspace_root();
     let fixture = workspace.join("tests").join("fixtures").join("simple-math");
 
-    let (stdout, stderr, status) = run_vertumnus(&[
-        "inspect",
-        fixture.to_str().unwrap(),
-    ]);
+    let (stdout, stderr, status) = run_vertumnus(&["inspect", fixture.to_str().unwrap()]);
 
     assert!(status.success(), "inspect failed: {}", stderr);
     assert!(!stdout.is_empty(), "stdout should contain IR JSON");
 
     // Parse as JSON and check structure
-    let ir: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("stdout should be valid JSON");
+    let ir: serde_json::Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
 
     assert_eq!(ir["vertumnus_ir_version"], "0.1");
     assert_eq!(ir["crate_name"], "simple_math");
@@ -100,32 +96,36 @@ fn test_inspect_simple_math() {
     assert!(!items.is_empty(), "should have items");
 
     // Check for specific items
-    let names: Vec<&str> = items.iter()
+    let names: Vec<&str> = items
+        .iter()
         .filter_map(|item| item["name"].as_str())
         .collect();
     assert!(names.contains(&"add"), "should contain 'add' function");
     assert!(names.contains(&"div"), "should contain 'div' function");
     assert!(names.contains(&"Point"), "should contain 'Point' struct");
-    assert!(names.contains(&"Direction"), "should contain 'Direction' enum");
+    assert!(
+        names.contains(&"Direction"),
+        "should contain 'Direction' enum"
+    );
 }
 
 #[test]
 fn test_inspect_string_utils() {
     let workspace = workspace_root();
-    let fixture = workspace.join("tests").join("fixtures").join("string-utils");
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("string-utils");
 
-    let (stdout, stderr, status) = run_vertumnus(&[
-        "inspect",
-        fixture.to_str().unwrap(),
-    ]);
+    let (stdout, stderr, status) = run_vertumnus(&["inspect", fixture.to_str().unwrap()]);
 
     assert!(status.success(), "inspect failed: {}", stderr);
-    let ir: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("stdout should be valid JSON");
+    let ir: serde_json::Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
 
     assert_eq!(ir["crate_name"], "string_utils");
     let items = ir["items"].as_array().expect("items should be an array");
-    let names: Vec<&str> = items.iter()
+    let names: Vec<&str> = items
+        .iter()
         .filter_map(|item| item["name"].as_str())
         .collect();
     assert!(names.contains(&"reverse"));
@@ -136,27 +136,33 @@ fn test_inspect_string_utils() {
 #[test]
 fn test_inspect_data_structures() {
     let workspace = workspace_root();
-    let fixture = workspace.join("tests").join("fixtures").join("data-structures");
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("data-structures");
 
-    let (stdout, stderr, status) = run_vertumnus(&[
-        "inspect",
-        fixture.to_str().unwrap(),
-    ]);
+    let (stdout, stderr, status) = run_vertumnus(&["inspect", fixture.to_str().unwrap()]);
 
     assert!(status.success(), "inspect failed: {}", stderr);
-    let ir: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("stdout should be valid JSON");
+    let ir: serde_json::Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
 
     assert_eq!(ir["crate_name"], "data_structures");
     let items = ir["items"].as_array().expect("items should be an array");
 
-    let names: Vec<&str> = items.iter()
+    let names: Vec<&str> = items
+        .iter()
         .filter_map(|item| item["name"].as_str())
         .collect();
     assert!(names.contains(&"sum_list"), "should contain sum_list");
-    assert!(names.contains(&"word_frequencies"), "should contain word_frequencies");
+    assert!(
+        names.contains(&"word_frequencies"),
+        "should contain word_frequencies"
+    );
     assert!(names.contains(&"merge_maps"), "should contain merge_maps");
-    assert!(names.contains(&"unique_words"), "should contain unique_words");
+    assert!(
+        names.contains(&"unique_words"),
+        "should contain unique_words"
+    );
     assert!(names.contains(&"DataStore"), "should contain DataStore");
     assert!(names.contains(&"Counter"), "should contain Counter");
     assert!(names.contains(&"Color"), "should contain Color");
@@ -182,13 +188,16 @@ fn test_inspect_to_file() {
     ]);
 
     assert!(status.success(), "inspect --output failed: {}", stderr);
-    assert!(_stdout.is_empty() || _stdout.trim().is_empty(),
-        "stdout should be empty when --output is used, got: {}", _stdout);
+    assert!(
+        _stdout.is_empty() || _stdout.trim().is_empty(),
+        "stdout should be empty when --output is used, got: {}",
+        _stdout
+    );
 
     assert!(out_file.exists(), "output file should exist");
     let content = std::fs::read_to_string(&out_file).unwrap();
-    let ir: serde_json::Value = serde_json::from_str(&content)
-        .expect("output should be valid JSON");
+    let ir: serde_json::Value =
+        serde_json::from_str(&content).expect("output should be valid JSON");
     assert_eq!(ir["crate_name"], "simple_math");
 
     let _ = std::fs::remove_dir_all(&out_dir);
@@ -207,30 +216,35 @@ fn test_map_simple_math() {
 
     // First inspect to file
     let (_, _, status) = run_vertumnus(&[
-        "inspect", fixture.to_str().unwrap(),
-        "--output", ir_file.to_str().unwrap(),
+        "inspect",
+        fixture.to_str().unwrap(),
+        "--output",
+        ir_file.to_str().unwrap(),
     ]);
     assert!(status.success());
 
     // Then map from file
-    let (stdout, stderr, status) = run_vertumnus(&[
-        "map",
-        ir_file.to_str().unwrap(),
-    ]);
+    let (stdout, stderr, status) = run_vertumnus(&["map", ir_file.to_str().unwrap()]);
     assert!(status.success(), "map failed: {}", stderr);
 
-    let annotated: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("stdout should be valid annotated IR JSON");
+    let annotated: serde_json::Value =
+        serde_json::from_str(&stdout).expect("stdout should be valid annotated IR JSON");
     assert_eq!(annotated["crate_name"], "simple_math");
 
     // Check that items have mapping info
     let items = annotated["items"].as_array().unwrap();
     for item in items {
         let mapping = &item["mapping"];
-        assert!(mapping.get("python_type").is_some(),
-            "item '{}' should have python_type in mapping", item["name"]);
-        assert!(mapping.get("pyo3_strategy").is_some(),
-            "item '{}' should have pyo3_strategy in mapping", item["name"]);
+        assert!(
+            mapping.get("python_type").is_some(),
+            "item '{}' should have python_type in mapping",
+            item["name"]
+        );
+        assert!(
+            mapping.get("pyo3_strategy").is_some(),
+            "item '{}' should have pyo3_strategy in mapping",
+            item["name"]
+        );
     }
 
     let _ = std::fs::remove_dir_all(&out_dir);
@@ -250,24 +264,48 @@ fn test_generate_simple_math() {
     let gen_dir = out_dir.join("generated");
 
     // Inspect → Map to files
-    run_vertumnus(&["inspect", fixture.to_str().unwrap(), "--output", ir_file.to_str().unwrap()]);
-    run_vertumnus(&["map", ir_file.to_str().unwrap(), "--output", annotated_file.to_str().unwrap()]);
+    run_vertumnus(&[
+        "inspect",
+        fixture.to_str().unwrap(),
+        "--output",
+        ir_file.to_str().unwrap(),
+    ]);
+    run_vertumnus(&[
+        "map",
+        ir_file.to_str().unwrap(),
+        "--output",
+        annotated_file.to_str().unwrap(),
+    ]);
 
     // Generate with --overwrite
     let (_stdout, stderr, status) = run_vertumnus(&[
         "generate",
         annotated_file.to_str().unwrap(),
-        "--output", gen_dir.to_str().unwrap(),
-        "--package-name", "simple_math",
+        "--output",
+        gen_dir.to_str().unwrap(),
+        "--package-name",
+        "simple_math",
         "--overwrite",
     ]);
     assert!(status.success(), "generate failed: {}", stderr);
 
     // Check generated files exist
-    assert!(gen_dir.join("src").join("lib.rs").exists(), "lib.rs should exist");
-    assert!(gen_dir.join("simple_math.pyi").exists(), ".pyi should exist");
-    assert!(gen_dir.join("python").join("simple_math").join("__init__.py").exists(),
-        "__init__.py should exist");
+    assert!(
+        gen_dir.join("src").join("lib.rs").exists(),
+        "lib.rs should exist"
+    );
+    assert!(
+        gen_dir.join("simple_math.pyi").exists(),
+        ".pyi should exist"
+    );
+    assert!(
+        gen_dir
+            .join("python")
+            .join("simple_math")
+            .join("__init__.py")
+            .exists(),
+        "__init__.py should exist"
+    );
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
@@ -285,19 +323,24 @@ fn test_wrap_dry_run_simple_math() {
     let (stdout, stderr, status) = run_vertumnus(&[
         "wrap",
         fixture.to_str().unwrap(),
-        "--out", out_dir.to_str().unwrap(),
-        "--package-name", "simple_math",
+        "--out",
+        out_dir.to_str().unwrap(),
+        "--package-name",
+        "simple_math",
         "--dry-run",
     ]);
     assert!(status.success(), "wrap --dry-run failed: {}", stderr);
 
     // Dry-run should print annotated IR to stdout
-    let annotated: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("stdout should be valid annotated IR JSON");
+    let annotated: serde_json::Value =
+        serde_json::from_str(&stdout).expect("stdout should be valid annotated IR JSON");
     assert_eq!(annotated["crate_name"], "simple_math");
 
     // Should NOT have created any files
-    assert!(!out_dir.join("src").exists(), "Should not create src/ in dry-run");
+    assert!(
+        !out_dir.join("src").exists(),
+        "Should not create src/ in dry-run"
+    );
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
@@ -305,17 +348,20 @@ fn test_wrap_dry_run_simple_math() {
 #[test]
 fn test_wrap_dry_run_data_structures() {
     let workspace = workspace_root();
-    let fixture = workspace.join("tests").join("fixtures").join("data-structures");
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("data-structures");
 
-    let (stdout, stderr, status) = run_vertumnus(&[
-        "wrap",
-        fixture.to_str().unwrap(),
-        "--dry-run",
-    ]);
-    assert!(status.success(), "wrap --dry-run data-structures failed: {}", stderr);
+    let (stdout, stderr, status) = run_vertumnus(&["wrap", fixture.to_str().unwrap(), "--dry-run"]);
+    assert!(
+        status.success(),
+        "wrap --dry-run data-structures failed: {}",
+        stderr
+    );
 
-    let annotated: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("stdout should be valid annotated IR JSON");
+    let annotated: serde_json::Value =
+        serde_json::from_str(&stdout).expect("stdout should be valid annotated IR JSON");
     assert_eq!(annotated["crate_name"], "data_structures");
 }
 
@@ -332,22 +378,42 @@ fn test_wrap_no_build_simple_math() {
     let (_stdout, stderr, status) = run_vertumnus(&[
         "wrap",
         fixture.to_str().unwrap(),
-        "--out", out_dir.to_str().unwrap(),
-        "--package-name", "simple_math",
+        "--out",
+        out_dir.to_str().unwrap(),
+        "--package-name",
+        "simple_math",
         "--no-build",
         "--overwrite",
     ]);
     assert!(status.success(), "wrap --no-build failed: {}", stderr);
 
     // Check generated files
-    assert!(out_dir.join("src").join("lib.rs").exists(), "lib.rs should exist");
-    assert!(out_dir.join("simple_math.pyi").exists(), ".pyi should exist");
-    assert!(out_dir.join("python").join("simple_math").join("__init__.py").exists(),
-        "__init__.py should exist");
+    assert!(
+        out_dir.join("src").join("lib.rs").exists(),
+        "lib.rs should exist"
+    );
+    assert!(
+        out_dir.join("simple_math.pyi").exists(),
+        ".pyi should exist"
+    );
+    assert!(
+        out_dir
+            .join("python")
+            .join("simple_math")
+            .join("__init__.py")
+            .exists(),
+        "__init__.py should exist"
+    );
 
     // Check scaffolded config files
-    assert!(out_dir.join("pyproject.toml").exists(), "pyproject.toml should exist");
-    assert!(out_dir.join("Cargo.toml").exists(), "Cargo.toml should exist");
+    assert!(
+        out_dir.join("pyproject.toml").exists(),
+        "pyproject.toml should exist"
+    );
+    assert!(
+        out_dir.join("Cargo.toml").exists(),
+        "Cargo.toml should exist"
+    );
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
@@ -355,23 +421,44 @@ fn test_wrap_no_build_simple_math() {
 #[test]
 fn test_wrap_no_build_string_utils() {
     let workspace = workspace_root();
-    let fixture = workspace.join("tests").join("fixtures").join("string-utils");
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("string-utils");
     let out_dir = temp_out_dir("wrap-nobuild-str");
 
     let (_stdout, stderr, status) = run_vertumnus(&[
         "wrap",
         fixture.to_str().unwrap(),
-        "--out", out_dir.to_str().unwrap(),
-        "--package-name", "string_utils",
+        "--out",
+        out_dir.to_str().unwrap(),
+        "--package-name",
+        "string_utils",
         "--no-build",
         "--overwrite",
     ]);
-    assert!(status.success(), "wrap --no-build string-utils failed: {}", stderr);
+    assert!(
+        status.success(),
+        "wrap --no-build string-utils failed: {}",
+        stderr
+    );
 
-    assert!(out_dir.join("src").join("lib.rs").exists(), "lib.rs should exist");
-    assert!(out_dir.join("string_utils.pyi").exists(), ".pyi should exist");
-    assert!(out_dir.join("pyproject.toml").exists(), "pyproject.toml should exist");
-    assert!(out_dir.join("Cargo.toml").exists(), "Cargo.toml should exist");
+    assert!(
+        out_dir.join("src").join("lib.rs").exists(),
+        "lib.rs should exist"
+    );
+    assert!(
+        out_dir.join("string_utils.pyi").exists(),
+        ".pyi should exist"
+    );
+    assert!(
+        out_dir.join("pyproject.toml").exists(),
+        "pyproject.toml should exist"
+    );
+    assert!(
+        out_dir.join("Cargo.toml").exists(),
+        "Cargo.toml should exist"
+    );
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
@@ -379,22 +466,40 @@ fn test_wrap_no_build_string_utils() {
 #[test]
 fn test_wrap_no_build_data_structures() {
     let workspace = workspace_root();
-    let fixture = workspace.join("tests").join("fixtures").join("data-structures");
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("data-structures");
     let out_dir = temp_out_dir("wrap-nobuild-ds");
 
     let (_stdout, stderr, status) = run_vertumnus(&[
         "wrap",
         fixture.to_str().unwrap(),
-        "--out", out_dir.to_str().unwrap(),
-        "--package-name", "data_structures",
+        "--out",
+        out_dir.to_str().unwrap(),
+        "--package-name",
+        "data_structures",
         "--no-build",
         "--overwrite",
     ]);
-    assert!(status.success(), "wrap --no-build data-structures failed: {}", stderr);
+    assert!(
+        status.success(),
+        "wrap --no-build data-structures failed: {}",
+        stderr
+    );
 
-    assert!(out_dir.join("src").join("lib.rs").exists(), "lib.rs should exist");
-    assert!(out_dir.join("data_structures.pyi").exists(), ".pyi should exist");
-    assert!(out_dir.join("pyproject.toml").exists(), "pyproject.toml should exist");
+    assert!(
+        out_dir.join("src").join("lib.rs").exists(),
+        "lib.rs should exist"
+    );
+    assert!(
+        out_dir.join("data_structures.pyi").exists(),
+        ".pyi should exist"
+    );
+    assert!(
+        out_dir.join("pyproject.toml").exists(),
+        "pyproject.toml should exist"
+    );
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
@@ -412,16 +517,26 @@ fn test_wrap_verbose_simple_math() {
     let (_stdout, stderr, status) = run_vertumnus(&[
         "wrap",
         fixture.to_str().unwrap(),
-        "--out", out_dir.to_str().unwrap(),
+        "--out",
+        out_dir.to_str().unwrap(),
         "--no-build",
         "--overwrite",
         "--verbose",
     ]);
     assert!(status.success(), "wrap --verbose failed: {}", stderr);
     // Verbose output goes to stderr
-    assert!(stderr.contains("Inspecting"), "verbose should mention inspecting");
-    assert!(stderr.contains("type mapper"), "verbose should mention type mapper");
-    assert!(stderr.contains("bindings"), "verbose should mention bindings");
+    assert!(
+        stderr.contains("Inspecting"),
+        "verbose should mention inspecting"
+    );
+    assert!(
+        stderr.contains("type mapper"),
+        "verbose should mention type mapper"
+    );
+    assert!(
+        stderr.contains("bindings"),
+        "verbose should mention bindings"
+    );
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
@@ -444,8 +559,10 @@ fn test_full_wrap_simple_math() {
     let (_stdout, stderr, status) = run_vertumnus(&[
         "wrap",
         fixture.to_str().unwrap(),
-        "--out", out_dir.to_str().unwrap(),
-        "--package-name", "simple_math",
+        "--out",
+        out_dir.to_str().unwrap(),
+        "--package-name",
+        "simple_math",
         "--overwrite",
     ]);
     assert!(status.success(), "full wrap failed: {}", stderr);
@@ -458,7 +575,12 @@ fn test_full_wrap_simple_math() {
         .into_iter()
         .flatten()
         .filter_map(|e| e.ok())
-        .any(|e| e.path().extension().map(|ext| ext == "whl").unwrap_or(false));
+        .any(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "whl")
+                .unwrap_or(false)
+        });
     assert!(has_wheel, "should have built a .whl file");
 
     let _ = std::fs::remove_dir_all(&out_dir);
@@ -470,10 +592,8 @@ fn test_full_wrap_simple_math() {
 
 #[test]
 fn test_inspect_nonexistent_crate() {
-    let (_stdout, stderr, status) = run_vertumnus(&[
-        "inspect",
-        "/tmp/nonexistent-crate-path-vertumnus-test",
-    ]);
+    let (_stdout, stderr, status) =
+        run_vertumnus(&["inspect", "/tmp/nonexistent-crate-path-vertumnus-test"]);
     assert!(!status.success(), "should fail for nonexistent path");
     assert!(!stderr.is_empty(), "should have error message");
 }
@@ -484,10 +604,7 @@ fn test_map_invalid_json() {
     let bad_file = out_dir.join("bad.json");
     std::fs::write(&bad_file, "not valid json").unwrap();
 
-    let (_stdout, stderr, status) = run_vertumnus(&[
-        "map",
-        bad_file.to_str().unwrap(),
-    ]);
+    let (_stdout, stderr, status) = run_vertumnus(&["map", bad_file.to_str().unwrap()]);
     assert!(!status.success(), "should fail for invalid JSON");
     assert!(!stderr.is_empty(), "should have error message");
 

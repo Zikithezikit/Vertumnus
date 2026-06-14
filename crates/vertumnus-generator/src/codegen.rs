@@ -159,7 +159,7 @@ pub(crate) fn extract_result_ok_type(type_str: &str) -> Option<String> {
     let s = type_str.trim();
     if s.starts_with("Result<") {
         let inner = &s[7..s.len() - 1]; // Strip "Result<" and ">"
-        // Split on first comma at top level
+                                        // Split on first comma at top level
         let mut depth = 0u32;
         for (i, c) in inner.char_indices() {
             match c {
@@ -236,7 +236,10 @@ fn extract_ref_prefix(type_str: &str) -> (&str, &str) {
                 let after_lifetime = after_ampersand[space_pos + 1..].trim();
                 let has_mut = after_lifetime.starts_with("mut ");
                 if has_mut {
-                    let rest = after_lifetime.strip_prefix("mut ").expect("has_mut guarantees 'mut ' prefix").trim();
+                    let rest = after_lifetime
+                        .strip_prefix("mut ")
+                        .expect("has_mut guarantees 'mut ' prefix")
+                        .trim();
                     // "&'lifetime mut " prefix
                     let prefix_end = 1 + space_pos + 1 + 4; // & + lifetime + ' ' + "mut "
                     return if prefix_end <= s.len() {
@@ -561,7 +564,8 @@ pub fn generate_enum_wrapper(
         code.push_str(&format!("impl {} {{\n", e.name));
 
         for (method, strategy) in methods {
-            let method_code = generate_method_wrapper(method, &e.name, strategy, false, wrapper_types);
+            let method_code =
+                generate_method_wrapper(method, &e.name, strategy, false, wrapper_types);
             code.push_str(&method_code);
         }
 
@@ -604,7 +608,10 @@ fn generate_method_wrapper(
             code.push_str("    // NOTE: Original method has generic parameters.\n");
         }
         code.push_str("    #[allow(unused_variables)]\n");
-        code.push_str(&format!("    fn {}_stub(&self) -> PyResult<()> {{\n", method.name));
+        code.push_str(&format!(
+            "    fn {}_stub(&self) -> PyResult<()> {{\n",
+            method.name
+        ));
         code.push_str("        todo!(\"VERTUMNUS: manual binding required\")\n");
         code.push_str("    }\n\n");
         return code;
@@ -671,7 +678,10 @@ fn generate_method_wrapper(
                         .collect();
                     code.push_str(&format!(
                         "        {} {{ inner: _crate::{}::{}({}) }}\n",
-                        parent_name, parent_name, method.name, arg_names.join(", ")
+                        parent_name,
+                        parent_name,
+                        method.name,
+                        arg_names.join(", ")
                     ));
                 } else {
                     let arg_names: Vec<String> = method
@@ -681,7 +691,9 @@ fn generate_method_wrapper(
                         .collect();
                     code.push_str(&format!(
                         "        _crate::{}::{}({})\n",
-                        parent_name, method.name, arg_names.join(", ")
+                        parent_name,
+                        method.name,
+                        arg_names.join(", ")
                     ));
                 }
             } else {
@@ -693,7 +705,9 @@ fn generate_method_wrapper(
                     .collect();
                 code.push_str(&format!(
                     "        _crate::{}::{}({})\n",
-                    parent_name, method.name, arg_names.join(", ")
+                    parent_name,
+                    method.name,
+                    arg_names.join(", ")
                 ));
             }
             code.push_str("    }\n\n");
@@ -705,7 +719,9 @@ fn generate_method_wrapper(
                 Receiver::MutRef => "&mut self",
                 Receiver::Value => "self",
                 // None is handled in the outer match arm
-                Receiver::None => unreachable!("Receiver::None is handled in the static method branch above"),
+                Receiver::None => {
+                    unreachable!("Receiver::None is handled in the static method branch above")
+                }
             };
 
             let params: Vec<String> = method
@@ -757,7 +773,13 @@ fn generate_method_wrapper(
                 if call_args.is_empty() {
                     format!("_crate::{}::{}({})", parent_name, method.name, self_expr)
                 } else {
-                    format!("_crate::{}::{}({}, {})", parent_name, method.name, self_expr, call_args.join(", "))
+                    format!(
+                        "_crate::{}::{}({}, {})",
+                        parent_name,
+                        method.name,
+                        self_expr,
+                        call_args.join(", ")
+                    )
                 }
             };
 
@@ -866,9 +888,21 @@ fn enum_self_conversion(parent_name: &str) -> String {
 fn is_copy_type(type_str: &str) -> bool {
     matches!(
         type_str.trim(),
-        "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
-            | "u8" | "u16" | "u32" | "u64" | "u128" | "usize"
-            | "f32" | "f64" | "bool" | "char"
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "char"
     )
 }
 
@@ -882,9 +916,19 @@ fn is_generic_field(type_str: &str) -> bool {
 
     // Known concrete container base names (without std path prefix)
     let known_container_bases = [
-        "Vec", "Option", "Result", "HashMap", "HashSet",
-        "Box", "Arc", "Rc", "Cow",
-        "BTreeMap", "BTreeSet", "LinkedList", "VecDeque",
+        "Vec",
+        "Option",
+        "Result",
+        "HashMap",
+        "HashSet",
+        "Box",
+        "Arc",
+        "Rc",
+        "Cow",
+        "BTreeMap",
+        "BTreeSet",
+        "LinkedList",
+        "VecDeque",
     ];
 
     // Extract the base type name (last segment after :: or first word before <)
@@ -907,7 +951,10 @@ fn is_generic_field(type_str: &str) -> bool {
 
     // Bare uppercase single-letter identifiers are generic params
     if trimmed.len() == 1 {
-        let c = trimmed.chars().next().expect("len == 1 implies at least one char");
+        let c = trimmed
+            .chars()
+            .next()
+            .expect("len == 1 implies at least one char");
         return c.is_ascii_uppercase() && c.is_ascii_alphabetic();
     }
     // Multi-letter all-uppercase generic params like `TKey`, `TValue`
@@ -926,8 +973,8 @@ fn ir_type_to_pyo3_type(type_str: &str) -> String {
 
     match s {
         // Primitives
-        "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
-        | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" => s.to_string(),
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128"
+        | "usize" => s.to_string(),
         "f32" | "f64" => s.to_string(),
         "bool" => "bool".to_string(),
         "char" => "char".to_string(),
@@ -1017,7 +1064,9 @@ fn ir_type_to_pyo3_type(type_str: &str) -> String {
 
         // Arc<T>, Rc<T>
         _ if (s.starts_with("Arc<") || s.starts_with("Rc<")) && s.ends_with('>') => {
-            let angle_start = s.find('<').expect("starts_with('Arc<') or 'Rc<' guarantees '<'");
+            let angle_start = s
+                .find('<')
+                .expect("starts_with('Arc<') or 'Rc<' guarantees '<'");
             let inner = &s[angle_start + 1..s.len() - 1];
             ir_type_to_pyo3_type(inner)
         }
@@ -1036,7 +1085,10 @@ fn ir_type_to_pyo3_type(type_str: &str) -> String {
         _ if s.starts_with('(') && s.ends_with(')') && s.len() > 2 => {
             let inner = &s[1..s.len() - 1];
             let elems: Vec<&str> = split_top_level_commas(inner);
-            let mapped: Vec<String> = elems.iter().map(|e| ir_type_to_pyo3_type(e.trim())).collect();
+            let mapped: Vec<String> = elems
+                .iter()
+                .map(|e| ir_type_to_pyo3_type(e.trim()))
+                .collect();
             format!("({})", mapped.join(", "))
         }
 
@@ -1055,7 +1107,13 @@ fn ir_type_to_pyo3_type(type_str: &str) -> String {
         _ => {
             // If it looks like a generic parameter (single uppercase letter), use PyAny
             let trimmed = s.trim();
-            if trimmed.len() == 1 && trimmed.chars().next().expect("len == 1 implies at least one char").is_ascii_uppercase() {
+            if trimmed.len() == 1
+                && trimmed
+                    .chars()
+                    .next()
+                    .expect("len == 1 implies at least one char")
+                    .is_ascii_uppercase()
+            {
                 "Bound<'_, PyAny>".to_string()
             } else {
                 trimmed.to_string()
@@ -1108,7 +1166,9 @@ fn split_type_args_once(s: &str) -> Option<(&str, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vertumnus_inspector::ir::{EnumVariant, FunctionParameter, IrType, IrItemKind, StructField, StructItem, EnumItem};
+    use vertumnus_inspector::ir::{
+        EnumItem, EnumVariant, FunctionParameter, IrItemKind, IrType, StructField, StructItem,
+    };
     use vertumnus_mapper::annotated_ir::{MappingWarning, PyO3Strategy};
 
     fn make_test_method(
@@ -1123,7 +1183,9 @@ mod tests {
                 name: name.to_string(),
                 doc: String::new(),
                 inputs,
-                output: IrType { type_str: output.to_string() },
+                output: IrType {
+                    type_str: output.to_string(),
+                },
                 is_unsafe: false,
                 is_async: false,
                 has_generics: false,
@@ -1170,8 +1232,14 @@ mod tests {
 
     #[test]
     fn test_extract_result_ok_type() {
-        assert_eq!(extract_result_ok_type("Result<i64, String>"), Some("i64".to_string()));
-        assert_eq!(extract_result_ok_type("Result<Vec<f64>, String>"), Some("Vec<f64>".to_string()));
+        assert_eq!(
+            extract_result_ok_type("Result<i64, String>"),
+            Some("i64".to_string())
+        );
+        assert_eq!(
+            extract_result_ok_type("Result<Vec<f64>, String>"),
+            Some("Vec<f64>".to_string())
+        );
         assert_eq!(extract_result_ok_type("i64"), None);
     }
 
@@ -1183,7 +1251,9 @@ mod tests {
                 name: "test".to_string(),
                 doc: String::new(),
                 inputs,
-                output: IrType { type_str: "()".to_string() },
+                output: IrType {
+                    type_str: "()".to_string(),
+                },
                 is_unsafe: false,
                 is_async: false,
                 has_generics: false,
@@ -1191,23 +1261,39 @@ mod tests {
             }
         };
 
-        assert_eq!(determine_receiver(&make_func(vec![
-            FunctionParameter { name: "self".to_string(), type_str: "&Point".to_string() },
-        ])), Receiver::Ref);
+        assert_eq!(
+            determine_receiver(&make_func(vec![FunctionParameter {
+                name: "self".to_string(),
+                type_str: "&Point".to_string()
+            },])),
+            Receiver::Ref
+        );
 
-        assert_eq!(determine_receiver(&make_func(vec![
-            FunctionParameter { name: "self".to_string(), type_str: "&mut Point".to_string() },
-        ])), Receiver::MutRef);
+        assert_eq!(
+            determine_receiver(&make_func(vec![FunctionParameter {
+                name: "self".to_string(),
+                type_str: "&mut Point".to_string()
+            },])),
+            Receiver::MutRef
+        );
 
-        assert_eq!(determine_receiver(&make_func(vec![
-            FunctionParameter { name: "self".to_string(), type_str: "Point".to_string() },
-        ])), Receiver::Value);
+        assert_eq!(
+            determine_receiver(&make_func(vec![FunctionParameter {
+                name: "self".to_string(),
+                type_str: "Point".to_string()
+            },])),
+            Receiver::Value
+        );
 
         assert_eq!(determine_receiver(&make_func(vec![])), Receiver::None);
 
-        assert_eq!(determine_receiver(&make_func(vec![
-            FunctionParameter { name: "x".to_string(), type_str: "i32".to_string() },
-        ])), Receiver::None);
+        assert_eq!(
+            determine_receiver(&make_func(vec![FunctionParameter {
+                name: "x".to_string(),
+                type_str: "i32".to_string()
+            },])),
+            Receiver::None
+        );
     }
 
     #[test]
@@ -1217,10 +1303,18 @@ mod tests {
             name: "add".to_string(),
             doc: "Adds two numbers.".to_string(),
             inputs: vec![
-                FunctionParameter { name: "a".to_string(), type_str: "i64".to_string() },
-                FunctionParameter { name: "b".to_string(), type_str: "i64".to_string() },
+                FunctionParameter {
+                    name: "a".to_string(),
+                    type_str: "i64".to_string(),
+                },
+                FunctionParameter {
+                    name: "b".to_string(),
+                    type_str: "i64".to_string(),
+                },
             ],
-            output: IrType { type_str: "i64".to_string() },
+            output: IrType {
+                type_str: "i64".to_string(),
+            },
             is_unsafe: false,
             is_async: false,
             has_generics: false,
@@ -1248,7 +1342,9 @@ mod tests {
             name: "unsafe_fn".to_string(),
             doc: String::new(),
             inputs: vec![],
-            output: IrType { type_str: "()".to_string() },
+            output: IrType {
+                type_str: "()".to_string(),
+            },
             is_unsafe: true,
             is_async: false,
             has_generics: false,
@@ -1258,12 +1354,10 @@ mod tests {
         let mapping = TypeMapping {
             python_type: "() -> None".to_string(),
             pyo3_strategy: PyO3Strategy::ManualStub,
-            warnings: vec![
-                MappingWarning {
-                    message: "Function is unsafe".to_string(),
-                    location: "unsafe_fn".to_string(),
-                },
-            ],
+            warnings: vec![MappingWarning {
+                message: "Function is unsafe".to_string(),
+                location: "unsafe_fn".to_string(),
+            }],
         };
 
         let code = generate_function_wrapper(&func, &mapping, &HashSet::new());
@@ -1278,10 +1372,18 @@ mod tests {
             name: "safe_div".to_string(),
             doc: String::new(),
             inputs: vec![
-                FunctionParameter { name: "a".to_string(), type_str: "i64".to_string() },
-                FunctionParameter { name: "b".to_string(), type_str: "i64".to_string() },
+                FunctionParameter {
+                    name: "a".to_string(),
+                    type_str: "i64".to_string(),
+                },
+                FunctionParameter {
+                    name: "b".to_string(),
+                    type_str: "i64".to_string(),
+                },
             ],
-            output: IrType { type_str: "Result<i64, String>".to_string() },
+            output: IrType {
+                type_str: "Result<i64, String>".to_string(),
+            },
             is_unsafe: false,
             is_async: false,
             has_generics: false,
@@ -1307,8 +1409,16 @@ mod tests {
             name: "Point".to_string(),
             doc: "A 2D point.".to_string(),
             fields: vec![
-                StructField { name: "x".to_string(), type_str: "f64".to_string(), visibility: FieldVisibility::Public },
-                StructField { name: "y".to_string(), type_str: "f64".to_string(), visibility: FieldVisibility::Public },
+                StructField {
+                    name: "x".to_string(),
+                    type_str: "f64".to_string(),
+                    visibility: FieldVisibility::Public,
+                },
+                StructField {
+                    name: "y".to_string(),
+                    type_str: "f64".to_string(),
+                    visibility: FieldVisibility::Public,
+                },
             ],
             methods: vec![],
             has_lifetimes: false,
@@ -1338,8 +1448,16 @@ mod tests {
             name: "Direction".to_string(),
             doc: "Directions.".to_string(),
             variants: vec![
-                EnumVariant { name: "North".to_string(), fields: vec![], discriminant: None },
-                EnumVariant { name: "South".to_string(), fields: vec![], discriminant: None },
+                EnumVariant {
+                    name: "North".to_string(),
+                    fields: vec![],
+                    discriminant: None,
+                },
+                EnumVariant {
+                    name: "South".to_string(),
+                    fields: vec![],
+                    discriminant: None,
+                },
             ],
             methods: vec![],
             has_lifetimes: false,
@@ -1365,9 +1483,11 @@ mod tests {
             kind: IrItemKind::Struct,
             name: "Point".to_string(),
             doc: "A 2D point.".to_string(),
-            fields: vec![
-                StructField { name: "x".to_string(), type_str: "f64".to_string(), visibility: FieldVisibility::Public },
-            ],
+            fields: vec![StructField {
+                name: "x".to_string(),
+                type_str: "f64".to_string(),
+                visibility: FieldVisibility::Public,
+            }],
             methods: vec![],
             has_lifetimes: false,
             has_generics: false,
@@ -1377,8 +1497,14 @@ mod tests {
             make_test_method(
                 "new",
                 vec![
-                    FunctionParameter { name: "x".to_string(), type_str: "f64".to_string() },
-                    FunctionParameter { name: "y".to_string(), type_str: "f64".to_string() },
+                    FunctionParameter {
+                        name: "x".to_string(),
+                        type_str: "f64".to_string(),
+                    },
+                    FunctionParameter {
+                        name: "y".to_string(),
+                        type_str: "f64".to_string(),
+                    },
                 ],
                 "Self",
                 PyO3Strategy::PyClass,
@@ -1386,8 +1512,14 @@ mod tests {
             make_test_method(
                 "distance",
                 vec![
-                    FunctionParameter { name: "self".to_string(), type_str: "&Point".to_string() },
-                    FunctionParameter { name: "other".to_string(), type_str: "&Point".to_string() },
+                    FunctionParameter {
+                        name: "self".to_string(),
+                        type_str: "&Point".to_string(),
+                    },
+                    FunctionParameter {
+                        name: "other".to_string(),
+                        type_str: "&Point".to_string(),
+                    },
                 ],
                 "f64",
                 PyO3Strategy::PyClass,

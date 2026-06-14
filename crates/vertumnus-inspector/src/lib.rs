@@ -14,8 +14,8 @@
 //! println!("{}", ir.to_json_pretty().unwrap());
 //! ```
 
-pub mod ir;
 pub mod inspector;
+pub mod ir;
 
 pub use inspector::inspect_crate;
 pub use ir::*;

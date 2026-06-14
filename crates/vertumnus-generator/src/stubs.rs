@@ -9,8 +9,6 @@ use std::collections::HashMap;
 use vertumnus_inspector::ir::{FieldVisibility, FunctionItem, IrItem, StructField};
 use vertumnus_mapper::annotated_ir::{AnnotatedIr, AnnotatedItem, PyO3Strategy};
 
-
-
 /// Generated Python stub output.
 #[derive(Debug, Clone)]
 pub struct GeneratedStubs {
@@ -91,7 +89,10 @@ pub fn generate_pyi(
 
     // Traits (informational)
     for item in &traits {
-        pyi.push_str(&format!("# Trait '{}' — limited binding support\n\n", item.original.name()));
+        pyi.push_str(&format!(
+            "# Trait '{}' — limited binding support\n\n",
+            item.original.name()
+        ));
     }
 
     pyi
@@ -125,18 +126,15 @@ pub fn generate_init_py(
     let mut names = Vec::new();
     for item in &annotated.items {
         match &item.original {
-            IrItem::Function(f)
-                if is_exportable(&item.mapping.pyo3_strategy) => {
-                    names.push(f.name.clone());
-                }
-            IrItem::Struct(s)
-                if is_exportable(&item.mapping.pyo3_strategy) => {
-                    names.push(s.name.clone());
-                }
-            IrItem::Enum(e)
-                if is_exportable(&item.mapping.pyo3_strategy) => {
-                    names.push(e.name.clone());
-                }
+            IrItem::Function(f) if is_exportable(&item.mapping.pyo3_strategy) => {
+                names.push(f.name.clone());
+            }
+            IrItem::Struct(s) if is_exportable(&item.mapping.pyo3_strategy) => {
+                names.push(s.name.clone());
+            }
+            IrItem::Enum(e) if is_exportable(&item.mapping.pyo3_strategy) => {
+                names.push(e.name.clone());
+            }
             _ => {}
         }
     }
@@ -149,10 +147,7 @@ pub fn generate_init_py(
     init.push_str(")\n\n");
 
     // Add a version attribute
-    init.push_str(&format!(
-        "__version__ = \"{}\"\n",
-        annotated.crate_version
-    ));
+    init.push_str(&format!("__version__ = \"{}\"\n", annotated.crate_version));
 
     init
 }
@@ -338,7 +333,10 @@ fn generate_enum_stub(
 
         for variant in &e.variants {
             if variant.fields.is_empty() {
-                stub.push_str(&format!("    {}: \"{}\" = ...\n", variant.name, variant.name));
+                stub.push_str(&format!(
+                    "    {}: \"{}\" = ...\n",
+                    variant.name, variant.name
+                ));
             } else {
                 stub.push_str(&format!("    # {}: data variant\n", variant.name));
             }
@@ -433,8 +431,8 @@ fn ir_type_to_python_type(type_str: &str) -> String {
 
     match s {
         // Primitives
-        "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
-        | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" => "int".to_string(),
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128"
+        | "usize" => "int".to_string(),
         "f32" | "f64" => "float".to_string(),
         "bool" => "bool".to_string(),
         "char" => "str".to_string(),
@@ -451,12 +449,8 @@ fn ir_type_to_python_type(type_str: &str) -> String {
         "Self" => "Self".to_string(),
 
         // Reference types (strip the reference)
-        _ if s.starts_with("&mut ") => {
-            ir_type_to_python_type(s[5..].trim())
-        }
-        _ if s.starts_with('&') => {
-            ir_type_to_python_type(s[1..].trim())
-        }
+        _ if s.starts_with("&mut ") => ir_type_to_python_type(s[5..].trim()),
+        _ if s.starts_with('&') => ir_type_to_python_type(s[1..].trim()),
 
         // Vec<T>
         _ if s.starts_with("Vec<") && s.ends_with('>') => {
@@ -556,7 +550,9 @@ fn ir_type_to_python_type(type_str: &str) -> String {
         // Generic named types
         _ if s.contains('<') && s.ends_with('>') => {
             // Try to parse as a named generic
-            let angle_start = s.find('<').expect("contains('<') guarantees '<' is present");
+            let angle_start = s
+                .find('<')
+                .expect("contains('<') guarantees '<' is present");
             let base = &s[..angle_start];
             base.to_string()
         }
@@ -601,7 +597,9 @@ fn split_python_type_args(s: &str) -> Vec<&str> {
 fn extract_python_result_ok(type_str: &str) -> Option<String> {
     if type_str.starts_with("Result[") {
         let inner = &type_str[7..type_str.len() - 1];
-        split_python_type_args(inner).first().map(|s| s.trim().to_string())
+        split_python_type_args(inner)
+            .first()
+            .map(|s| s.trim().to_string())
     } else {
         None
     }
@@ -662,10 +660,18 @@ mod tests {
                     name: "add".to_string(),
                     doc: "Adds two integers.".to_string(),
                     inputs: vec![
-                        FunctionParameter { name: "a".to_string(), type_str: "i64".to_string() },
-                        FunctionParameter { name: "b".to_string(), type_str: "i64".to_string() },
+                        FunctionParameter {
+                            name: "a".to_string(),
+                            type_str: "i64".to_string(),
+                        },
+                        FunctionParameter {
+                            name: "b".to_string(),
+                            type_str: "i64".to_string(),
+                        },
                     ],
-                    output: IrType { type_str: "i64".to_string() },
+                    output: IrType {
+                        type_str: "i64".to_string(),
+                    },
                     is_unsafe: false,
                     is_async: false,
                     has_generics: false,
@@ -676,8 +682,16 @@ mod tests {
                     name: "Point".to_string(),
                     doc: "A 2D point.".to_string(),
                     fields: vec![
-                        StructField { name: "x".to_string(), type_str: "f64".to_string(), visibility: FieldVisibility::Public },
-                        StructField { name: "y".to_string(), type_str: "f64".to_string(), visibility: FieldVisibility::Public },
+                        StructField {
+                            name: "x".to_string(),
+                            type_str: "f64".to_string(),
+                            visibility: FieldVisibility::Public,
+                        },
+                        StructField {
+                            name: "y".to_string(),
+                            type_str: "f64".to_string(),
+                            visibility: FieldVisibility::Public,
+                        },
                     ],
                     methods: vec![],
                     has_lifetimes: false,
@@ -688,8 +702,16 @@ mod tests {
                     name: "Direction".to_string(),
                     doc: "Cardinal directions.".to_string(),
                     variants: vec![
-                        EnumVariant { name: "North".to_string(), fields: vec![], discriminant: None },
-                        EnumVariant { name: "South".to_string(), fields: vec![], discriminant: None },
+                        EnumVariant {
+                            name: "North".to_string(),
+                            fields: vec![],
+                            discriminant: None,
+                        },
+                        EnumVariant {
+                            name: "South".to_string(),
+                            fields: vec![],
+                            discriminant: None,
+                        },
                     ],
                     methods: vec![],
                     has_lifetimes: false,
@@ -765,7 +787,10 @@ mod tests {
         assert_eq!(ir_type_to_python_type("()"), "None");
         assert_eq!(ir_type_to_python_type("Vec<f64>"), "list[float]");
         assert_eq!(ir_type_to_python_type("Option<i32>"), "int | None");
-        assert_eq!(ir_type_to_python_type("HashMap<String, i64>"), "dict[str, int]");
+        assert_eq!(
+            ir_type_to_python_type("HashMap<String, i64>"),
+            "dict[str, int]"
+        );
         assert_eq!(ir_type_to_python_type("HashSet<String>"), "set[str]");
         assert_eq!(ir_type_to_python_type("(i32, f64)"), "tuple[int, float]");
         assert_eq!(ir_type_to_python_type("&Point"), "Point");

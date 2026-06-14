@@ -76,7 +76,11 @@ fn map_function(func: &FunctionItem) -> AnnotatedItem {
             warnings.push(MappingWarning {
                 message: format!(
                     "Parameter '{}' uses type '{}' which requires manual binding",
-                    param_name, func.inputs.get(i).map(|p| p.type_str.as_str()).unwrap_or("?")
+                    param_name,
+                    func.inputs
+                        .get(i)
+                        .map(|p| p.type_str.as_str())
+                        .unwrap_or("?")
                 ),
                 location: format!("{}.{}", func.name, param_name),
             });
@@ -136,11 +140,7 @@ fn map_function(func: &FunctionItem) -> AnnotatedItem {
         PyO3Strategy::PyFunction
     };
 
-    let python_type = format!(
-        "({}) -> {}",
-        python_inputs.join(", "),
-        python_output
-    );
+    let python_type = format!("({}) -> {}", python_inputs.join(", "), python_output);
 
     let mapping = TypeMapping {
         python_type,
@@ -632,7 +632,10 @@ mod tests {
         );
         // Should have a warning about the error type
         assert!(
-            item.mapping.warnings.iter().any(|w| w.message.contains("Result")),
+            item.mapping
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("Result")),
             "Expected a warning about Result type"
         );
     }
@@ -662,7 +665,10 @@ mod tests {
         let item = &annotated.items[0];
         assert_eq!(item.mapping.pyo3_strategy, PyO3Strategy::ManualStub);
         assert!(
-            item.mapping.warnings.iter().any(|w| w.message.contains("unsafe")),
+            item.mapping
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("unsafe")),
             "Should have safety warning"
         );
     }

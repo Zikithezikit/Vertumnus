@@ -79,10 +79,8 @@ fn is_primitive(s: &str) -> bool {
 /// Map a Rust primitive type to its Python equivalent and PyO3 strategy.
 fn map_primitive(s: &str) -> MappedType {
     match s {
-        "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
-        | "u8" | "u16" | "u32" | "u64" | "u128" | "usize" => {
-            MappedType::new("int", PyO3Strategy::Native)
-        }
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128"
+        | "usize" => MappedType::new("int", PyO3Strategy::Native),
         "f32" | "f64" => MappedType::new("float", PyO3Strategy::Native),
         "bool" => MappedType::new("bool", PyO3Strategy::Native),
         "char" => MappedType::new("str", PyO3Strategy::Native),
@@ -174,7 +172,10 @@ fn is_generic_param(s: &str) -> bool {
     let s = s.trim();
     // Only single uppercase letters are bare generic parameters
     if s.len() == 1 {
-        let c = s.chars().next().expect("len == 1 implies at least one char");
+        let c = s
+            .chars()
+            .next()
+            .expect("len == 1 implies at least one char");
         return c.is_ascii_uppercase() && c != '_';
     }
     // Two or more characters: could be a named type or a known std type.
@@ -301,9 +302,7 @@ pub fn map_type(type_str: &str, location: &str) -> MappedType {
         return MappedType::with_warning(
             "typing.Any",
             PyO3Strategy::ManualStub,
-            format!(
-                "Generic parameter '{trimmed}' cannot be resolved without monomorphization."
-            ),
+            format!("Generic parameter '{trimmed}' cannot be resolved without monomorphization."),
             location,
         );
     }
@@ -497,7 +496,11 @@ fn parse_fn_pointer(type_str: &str, location: &str) -> MappedType {
         "None".to_string()
     };
 
-    let py_fn = format!("typing.Callable[[{}], {}]", mapped_args.join(", "), py_return);
+    let py_fn = format!(
+        "typing.Callable[[{}], {}]",
+        mapped_args.join(", "),
+        py_return
+    );
 
     MappedType {
         python_type: py_fn,
@@ -519,12 +522,11 @@ fn try_parse_generic(type_str: &str, location: &str) -> Option<MappedType> {
     let args_str = &s[angle_start + 1..close_pos].trim();
 
     let args = split_type_args(args_str);
-    let mapped_args: Vec<MappedType> = args
+    let mapped_args: Vec<MappedType> = args.iter().map(|a| map_type(a.trim(), location)).collect();
+    let mut all_warnings: Vec<MappingWarning> = mapped_args
         .iter()
-        .map(|a| map_type(a.trim(), location))
+        .flat_map(|m| m.warnings.clone())
         .collect();
-    let mut all_warnings: Vec<MappingWarning> =
-        mapped_args.iter().flat_map(|m| m.warnings.clone()).collect();
 
     match base_name {
         "Vec" => {
@@ -640,7 +642,10 @@ fn try_parse_generic(type_str: &str, location: &str) -> Option<MappedType> {
                     warnings: all_warnings,
                 };
                 result.warnings.push(MappingWarning {
-                    message: format!("Box<{}> unwrapped to {}", inner.python_type, inner.python_type),
+                    message: format!(
+                        "Box<{}> unwrapped to {}",
+                        inner.python_type, inner.python_type
+                    ),
                     location: location.to_string(),
                 });
                 Some(result)
@@ -800,7 +805,11 @@ mod tests {
                 result.python_type
             );
             assert_eq!(result.pyo3_strategy, PyO3Strategy::Native);
-            assert!(result.warnings.is_empty(), "Unexpected warnings: {:?}", result.warnings);
+            assert!(
+                result.warnings.is_empty(),
+                "Unexpected warnings: {:?}",
+                result.warnings
+            );
         }
     }
 
@@ -856,14 +865,20 @@ mod tests {
         let result = map_type("Result<i64, String>", "test");
         assert_eq!(result.python_type, "int");
         assert_eq!(result.pyo3_strategy, PyO3Strategy::MapErr);
-        assert!(!result.warnings.is_empty(), "Should have warning about error type");
+        assert!(
+            !result.warnings.is_empty(),
+            "Should have warning about error type"
+        );
     }
 
     #[test]
     fn test_map_result_no_err_warning() {
         let result = map_type("Result<i64, MathError>", "safe_div.return_type");
         assert_eq!(result.python_type, "int");
-        assert!(result.warnings.iter().any(|w| w.message.contains("RuntimeError")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("RuntimeError")));
     }
 
     #[test]
@@ -1007,7 +1022,10 @@ mod tests {
         assert_eq!(map_type("Option<i32>", "test").python_type, "int | None");
         assert_eq!(map_type("Result<i32, String>", "test").python_type, "int");
         assert_eq!(map_type("Vec<String>", "test").python_type, "list[str]");
-        assert_eq!(map_type("HashMap<String, String>", "test").python_type, "dict[str, str]");
+        assert_eq!(
+            map_type("HashMap<String, String>", "test").python_type,
+            "dict[str, str]"
+        );
     }
 
     // -----------------------------------------------------------------------

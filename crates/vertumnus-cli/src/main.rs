@@ -210,7 +210,10 @@ fn main() -> anyhow::Result<()> {
             let package_name_safe = package_name.replace('-', "_");
 
             if verbose {
-                eprintln!("🔧 Generating Python bindings for '{}'...", package_name_safe);
+                eprintln!(
+                    "🔧 Generating Python bindings for '{}'...",
+                    package_name_safe
+                );
             }
 
             let config = vertumnus_generator::GeneratorConfig {
@@ -249,14 +252,13 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("🏗️  Scaffolding build configuration...");
             }
 
-            let canonical_path = path.canonicalize().map_err(|e| {
-                anyhow::anyhow!("Cannot resolve crate path: {e}")
-            })?;
+            let canonical_path = path
+                .canonicalize()
+                .map_err(|e| anyhow::anyhow!("Cannot resolve crate path: {e}"))?;
 
             // Read the actual crate name from Cargo.toml (preserves hyphens)
-            let original_crate_name =
-                vertumnus_builder::read_crate_name(&canonical_path)
-                    .unwrap_or_else(|_| ir.crate_name.clone());
+            let original_crate_name = vertumnus_builder::read_crate_name(&canonical_path)
+                .unwrap_or_else(|_| ir.crate_name.clone());
 
             let builder_config = vertumnus_builder::BuilderConfig {
                 output_dir: out_path.clone(),
@@ -296,7 +298,10 @@ fn main() -> anyhow::Result<()> {
             } else {
                 if verbose {
                     eprintln!("ℹ️  Skipping maturin build (--no-build).");
-                    eprintln!("   Run `maturin build --release` in '{}' to build.", out_path.display());
+                    eprintln!(
+                        "   Run `maturin build --release` in '{}' to build.",
+                        out_path.display()
+                    );
                 }
             }
         }
@@ -352,7 +357,10 @@ fn main() -> anyhow::Result<()> {
                     .iter()
                     .map(|i| i.mapping.warnings.len())
                     .sum();
-                eprintln!("✅ Mapping complete. {} warnings generated.", total_warnings);
+                eprintln!(
+                    "✅ Mapping complete. {} warnings generated.",
+                    total_warnings
+                );
                 if total_warnings > 0 {
                     for item in &annotated.items {
                         for w in &item.mapping.warnings {
@@ -387,12 +395,14 @@ fn main() -> anyhow::Result<()> {
             overwrite,
         } => {
             if verbose {
-                eprintln!("🔧 Generating bindings from annotated IR: {}", path.display());
+                eprintln!(
+                    "🔧 Generating bindings from annotated IR: {}",
+                    path.display()
+                );
             }
 
             let ir_content = std::fs::read_to_string(&path)?;
-            let annotated =
-                vertumnus_mapper::annotated_ir::AnnotatedIr::from_json(&ir_content)?;
+            let annotated = vertumnus_mapper::annotated_ir::AnnotatedIr::from_json(&ir_content)?;
 
             let package_name = package_name.unwrap_or_else(|| annotated.crate_name.clone());
             let package_name_safe = package_name.replace('-', "_");
