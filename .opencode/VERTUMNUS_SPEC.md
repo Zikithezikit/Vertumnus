@@ -296,26 +296,26 @@ The IR is the contract between the Inspector and all downstream phases. It must 
 
 ## 9. Milestones
 
-### M1 — Inspector + IR
-- [ ] Parse a simple Rust crate via rustdoc JSON.
-- [ ] Emit a valid IR JSON for functions, structs, and enums.
-- [ ] `vertumnus inspect` command works end-to-end.
+### M1 — Inspector + IR ✅ COMPLETE
+- [x] Parse a simple Rust crate via rustdoc JSON.
+- [x] Emit a valid IR JSON for functions, structs, and enums.
+- [x] `vertumnus inspect` command works end-to-end.
 
-### M2 — Type Mapper
-- [ ] Map all primitive types.
-- [ ] Map `Vec`, `HashMap`, `Option`, `Result`.
-- [ ] Emit warnings for unsupported types (lifetimes, `dyn Trait`).
-- [ ] `vertumnus map` command works end-to-end.
+### M2 — Type Mapper ✅ COMPLETE
+- [x] Map all primitive types.
+- [x] Map `Vec`, `HashMap`, `Option`, `Result`.
+- [x] Emit warnings for unsupported types (lifetimes, `dyn Trait`).
+- [x] `vertumnus map` command works end-to-end.
 
-### M3 — Binding Generator
-- [ ] Generate PyO3 glue for functions, structs, enums.
-- [ ] Generate `.pyi` stubs.
-- [ ] Generated code compiles with `cargo check`.
+### M3 — Binding Generator ✅ COMPLETE
+- [x] Generate PyO3 glue for functions, structs, enums.
+- [x] Generate `.pyi` stubs.
+- [x] Generated code compiles with `cargo check`.
 
-### M4 — Builder + CLI
-- [ ] Scaffold `pyproject.toml` and `Cargo.toml` additions.
-- [ ] Invoke `maturin build` and produce a `.whl`.
-- [ ] `vertumnus wrap` works end-to-end on at least two fixture crates.
+### M4 — Builder + CLI ✅ COMPLETE
+- [x] Scaffold `pyproject.toml` and `Cargo.toml` additions.
+- [x] Invoke `maturin build` and produce a `.whl`.
+- [x] `vertumnus wrap` works end-to-end on at least two fixture crates.
 
 ### M5 — Polish ✅ COMPLETE
 - [x] CI workflow template generation.
