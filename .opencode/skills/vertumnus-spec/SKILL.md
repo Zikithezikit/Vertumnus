@@ -117,6 +117,10 @@ vertumnus map <ir.json>               # Phase 2 only, dump annotated IR
 vertumnus generate <annotated.json>   # Phase 3 only, emit Rust + stub files
 ```
 
+**Defaults:**
+- `--out` → `../py-<crate_name>` (outside the crate directory — avoids Cargo workspace conflicts)
+- `--package-name` → `py-<crate_name>` (consistent `py-` prefix for both output directory and package name)
+
 ## Milestones
 
 - **M1** — Inspector + IR (rustdoc JSON parsing, `vertumnus inspect` works)

@@ -186,8 +186,8 @@ vertumnus wrap <path-to-crate> [options]
 
 | Flag | Description |
 |---|---|
-| `--out <dir>` | Output directory for generated files (default: `./vertumnus-out`) |
-| `--package-name <name>` | Python package name (default: crate name) |
+| `--out <dir>` | Output directory for generated files (default: `../py-<crate_name>`, outside the crate directory) |
+| `--package-name <name>` | Python package name (default: `py-<crate_name>`) |
 | `--dry-run` | Inspect and map only; do not write files |
 | `--no-build` | Generate files but do not invoke maturin |
 | `--verbose` | Print IR and mapping decisions to stdout |

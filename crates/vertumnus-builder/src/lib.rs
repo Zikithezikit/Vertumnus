@@ -11,7 +11,7 @@
 //! use std::path::PathBuf;
 //!
 //! let config = BuilderConfig {
-//!     output_dir: PathBuf::from("./vertumnus-out"),
+//!     output_dir: PathBuf::from("../py-original-crate"),
 //!     crate_path: PathBuf::from("/path/to/original-crate"),
 //!     package_name: "my_package".to_string(),
 //!     crate_name: "original_crate".to_string(),

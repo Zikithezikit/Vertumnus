@@ -3,11 +3,11 @@
 Turn any Rust crate into a Python package — no PyO3 knowledge needed.
 
 ```bash
-vertumnus wrap path/to/rust-crate
-pip install ./vertumnus-out/
+vertumnus wrap path/to/rust-crate            # output goes to path/to/py-rust-crate/
+pip install path/to/py-rust-crate/
 ```
 
-You get a fully typed Python package backed by native Rust code.
+The output is placed **alongside your crate** (in the same parent folder), not in your current working directory. You get a fully typed Python package backed by native Rust code.
 
 ---
 
@@ -29,19 +29,19 @@ cargo install vertumnus-cli
 vertumnus wrap path/to/some-rust-crate
 ```
 
-This produces a pip-installable wheel in `./vertumnus-out/`:
+The output is placed **alongside the crate**, not in your current directory. If your crate is at `path/to/some-rust-crate`, the generated package lands at `path/to/py-some-rust-crate/`.
 
 ```bash
-pip install ./vertumnus-out/
-python -c "import some_rust_crate; print(dir(some_rust_crate))"
+pip install path/to/py-some-rust-crate/
+python -c "import py_some_rust_crate; print(dir(py_some_rust_crate))"
 ```
 
 ### Options
 
 | Flag | What it does |
 |---|---|
-| `--out <dir>` | Output directory (default: `./vertumnus-out`) |
-| `--package-name <name>` | Python package name (default: the crate name) |
+| `--out <dir>` | Output directory (default: alongside the crate as `py-<crate_name>`) |
+| `--package-name <name>` | Python package name (default: `py-<crate_name>`) |
 | `--dry-run` | Inspect and map only — don't write files or build |
 | `--no-build` | Generate binding code, don't compile the wheel |
 | `--verbose` | Show detailed decisions as they're made |
@@ -80,20 +80,20 @@ Stuff Vertumnus can't handle (lifetimes, `async fn`, `dyn Trait`, generics) gets
 ## Example
 
 ```bash
-# A real crate in this repo
+# A real crate in this repo — output goes alongside it
 vertumnus wrap tests/fixtures/simple-math --no-build
 
-ls vertumnus-out/simple-math/
+ls tests/fixtures/py-simple-math/
 #   Cargo.toml  pyproject.toml  src/lib.rs
-#   simple_math.pyi  python/simple_math/
+#   py_simple_math.pyi  python/py_simple_math/
 
-pip install ./vertumnus-out/simple-math/
+pip install tests/fixtures/py-simple-math/
 python -c "
-import simple_math
-print(simple_math.add(2, 3))       # 5
-print(simple_math.div(10.0, 2.0))   # 5.0
-p = simple_math.Point(1.0, 2.0)
-print(p.distance(simple_math.Point(4.0, 6.0)))  # 5.0
+import py_simple_math
+print(py_simple_math.add(2, 3))       # 5
+print(py_simple_math.div(10.0, 2.0))   # 5.0
+p = py_simple_math.Point(1.0, 2.0)
+print(p.distance(py_simple_math.Point(4.0, 6.0)))  # 5.0
 "
 ```
 

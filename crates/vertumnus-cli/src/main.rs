@@ -28,11 +28,11 @@ enum Commands {
         /// Path to the Rust crate to wrap
         path: PathBuf,
 
-        /// Output directory for generated files
-        #[arg(long, default_value = "./vertumnus-out")]
-        out: PathBuf,
+        /// Output directory for generated files (default: ../py-<crate_name>)
+        #[arg(long)]
+        out: Option<PathBuf>,
 
-        /// Python package name (default: crate name)
+        /// Python package name (default: py-<crate_name>)
         #[arg(long)]
         package_name: Option<String>,
 
@@ -86,11 +86,11 @@ enum Commands {
         /// Path to the annotated IR JSON file
         path: PathBuf,
 
-        /// Output directory for generated files
-        #[arg(long, default_value = "./vertumnus-out")]
-        output: PathBuf,
+        /// Output directory for generated files (default: ../py-<crate_name> from IR path)
+        #[arg(long)]
+        output: Option<PathBuf>,
 
-        /// Python package name (default: crate name from annotated IR)
+        /// Python package name (default: py-<crate_name>)
         #[arg(long)]
         package_name: Option<String>,
 
@@ -206,7 +206,7 @@ fn main() -> anyhow::Result<()> {
             }
 
             // Phase 3: Generate bindings
-            let package_name = package_name.unwrap_or_else(|| ir.crate_name.clone());
+            let package_name = package_name.unwrap_or_else(|| format!("py-{}", ir.crate_name));
             let package_name_safe = package_name.replace('-', "_");
 
             if verbose {
@@ -231,14 +231,34 @@ fn main() -> anyhow::Result<()> {
             }
 
             // Write output files
-            let out_path = if out.exists() && !overwrite {
-                anyhow::bail!(
-                    "Output directory '{}' exists. Use --overwrite to overwrite.",
-                    out.display()
-                );
-            } else {
-                std::fs::create_dir_all(&out)?;
-                out
+            let out_path = match out {
+                Some(p) => {
+                    if p.exists() && !overwrite {
+                        anyhow::bail!(
+                            "Output directory '{}' exists. Use --overwrite to overwrite.",
+                            p.display()
+                        );
+                    }
+                    std::fs::create_dir_all(&p)?;
+                    p
+                }
+                None => {
+                    // Default: parent_dir/py-<crate_name> (outside the crate directory)
+                    let canonical_crate = path
+                        .canonicalize()
+                        .map_err(|e| anyhow::anyhow!("Cannot resolve crate path: {e}"))?;
+                    let parent = canonical_crate.parent().unwrap_or_else(|| Path::new("."));
+                    let dir_name = format!("py-{}", ir.crate_name.replace('_', "-"));
+                    let default = parent.join(&dir_name);
+                    if default.exists() && !overwrite {
+                        anyhow::bail!(
+                            "Output directory '{}' exists. Use --overwrite to overwrite.",
+                            default.display()
+                        );
+                    }
+                    std::fs::create_dir_all(&default)?;
+                    default
+                }
             };
 
             write_generated_files(&out_path, &package_name_safe, &files, verbose, overwrite)?;
@@ -404,7 +424,8 @@ fn main() -> anyhow::Result<()> {
             let ir_content = std::fs::read_to_string(&path)?;
             let annotated = vertumnus_mapper::annotated_ir::AnnotatedIr::from_json(&ir_content)?;
 
-            let package_name = package_name.unwrap_or_else(|| annotated.crate_name.clone());
+            let package_name =
+                package_name.unwrap_or_else(|| format!("py-{}", annotated.crate_name));
             let package_name_safe = package_name.replace('-', "_");
 
             if verbose {
@@ -421,14 +442,25 @@ fn main() -> anyhow::Result<()> {
             };
             let gen = vertumnus_generator::Generator::new(annotated, config);
 
+            // Determine output directory
+            let output_dir = match output {
+                Some(p) => p,
+                None => {
+                    // Default: use parent of the IR file, named py-<crate_name>
+                    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+                    let dir_name = format!("py-{}", package_name_safe.replace('_', "-"));
+                    parent.join(&dir_name)
+                }
+            };
+
             // Create output directory
-            std::fs::create_dir_all(&output)?;
+            std::fs::create_dir_all(&output_dir)?;
 
             let files = gen.generate()?;
-            write_generated_files(&output, &package_name_safe, &files, verbose, overwrite)?;
+            write_generated_files(&output_dir, &package_name_safe, &files, verbose, overwrite)?;
 
             if verbose {
-                eprintln!("✅ Bindings written to: {}", output.display());
+                eprintln!("✅ Bindings written to: {}", output_dir.display());
             }
         }
     }
