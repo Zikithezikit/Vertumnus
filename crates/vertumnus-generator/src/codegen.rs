@@ -329,6 +329,7 @@ pub fn generate_struct_wrapper(
     derive_debug: bool,
     _derive_eq: bool,
     wrapper_types: &HashSet<String>,
+    enum_wrappers: &HashSet<String>,
 ) -> String {
     let mut code = String::new();
 
@@ -442,8 +443,62 @@ pub fn generate_struct_wrapper(
             "    fn {}(&self) -> {} {{\n",
             field.name, py_return
         ));
-        // Clone non-Copy types (like String) to avoid move errors
-        if is_copy_type(&field.type_str) {
+        // If the field type is itself a wrapper type, wrap the inner value
+        let field_py_type = ir_type_to_pyo3_type(&field.type_str);
+
+        // Check if it's Vec<WrapperType>
+        if field.type_str.contains("Vec<") && field.type_str.ends_with('>') {
+            // Extract the inner type from Vec<T>
+            let angle_start = field.type_str.find('<').unwrap();
+            let inner_type = &field.type_str[angle_start + 1..field.type_str.len() - 1];
+            let inner_clean = inner_type
+                .trim()
+                .split("::")
+                .last()
+                .unwrap_or(inner_type.trim());
+
+            if wrapper_types.contains(inner_clean) {
+                // Vec of wrapper types — map each element
+                if enum_wrappers.contains(inner_clean) {
+                    // Enum wrapper — use From conversion
+                    code.push_str(&format!(
+                        "        self.inner.{}.iter().map(|item| {}::from(item.clone())).collect()\n",
+                        field.name, inner_clean
+                    ));
+                } else {
+                    // Struct wrapper — wrap with { inner: ... }
+                    code.push_str(&format!(
+                        "        self.inner.{}.iter().map(|item| {} {{ inner: item.clone() }}).collect()\n",
+                        field.name, inner_clean
+                    ));
+                }
+            } else {
+                // Regular Vec — just clone
+                code.push_str(&format!("        self.inner.{}.clone()\n", field.name));
+            }
+        } else if wrapper_types.contains(&field_py_type) {
+            // Single wrapper type — check if it's a struct or enum
+            if enum_wrappers.contains(&field_py_type) {
+                // Enum wrapper — use From conversion
+                code.push_str(&format!(
+                    "        {}::from(self.inner.{}.clone())\n",
+                    field_py_type, field.name
+                ));
+            } else {
+                // Struct wrapper — wrap with { inner: ... }
+                if is_copy_type(&field.type_str) {
+                    code.push_str(&format!(
+                        "        {} {{ inner: self.inner.{} }}\n",
+                        field_py_type, field.name
+                    ));
+                } else {
+                    code.push_str(&format!(
+                        "        {} {{ inner: self.inner.{}.clone() }}\n",
+                        field_py_type, field.name
+                    ));
+                }
+            }
+        } else if is_copy_type(&field.type_str) {
             code.push_str(&format!("        self.inner.{}\n", field.name));
         } else {
             code.push_str(&format!("        self.inner.{}.clone()\n", field.name));
@@ -541,6 +596,7 @@ pub fn generate_enum_wrapper(
 
     // Generate From conversion for C-like enums (for method dispatch)
     if is_c_like {
+        // Forward: wrapper → inner
         code.push_str(&format!(
             "impl From<{}> for _crate::{} {{\n",
             e.name, e.name
@@ -553,6 +609,31 @@ pub fn generate_enum_wrapper(
                 e.name, variant.name, e.name, variant.name
             ));
         }
+        code.push_str("        }\n");
+        code.push_str("    }\n");
+        code.push_str("}\n\n");
+
+        // Reverse: inner → wrapper
+        code.push_str(&format!(
+            "impl From<_crate::{}> for {} {{\n",
+            e.name, e.name
+        ));
+        code.push_str(&format!(
+            "    fn from(val: _crate::{}) -> Self {{\n",
+            e.name
+        ));
+        code.push_str("        match val {\n");
+        for variant in &e.variants {
+            code.push_str(&format!(
+                "            _crate::{}::{} => {}::{},\n",
+                e.name, variant.name, e.name, variant.name
+            ));
+        }
+        // Add wildcard arm for non-exhaustive enums or future-proofing
+        code.push_str(&format!(
+            "            _ => panic!(\"Unknown variant of {}::{}\")\n",
+            "_crate", e.name
+        ));
         code.push_str("        }\n");
         code.push_str("    }\n");
         code.push_str("}\n\n");
@@ -649,7 +730,13 @@ fn generate_method_wrapper(
                 })
                 .collect();
 
-            let return_type = if method.name == "new" || method.output.type_str == "Self" {
+            // Determine return type:
+            // - MapErr: always PyResult<T> (even for #[new])
+            // - Constructor (Self-returning): Self
+            // - Otherwise: normal type
+            let return_type = if *strategy == PyO3Strategy::MapErr {
+                method_return_type(method, strategy)
+            } else if method.name == "new" || method.output.type_str == "Self" {
                 "Self".to_string()
             } else {
                 method_return_type(method, strategy)
@@ -667,15 +754,36 @@ fn generate_method_wrapper(
                 ret
             ));
 
+            let arg_names: Vec<String> = method
+                .inputs
+                .iter()
+                .map(|p| unwrap_arg_for_call(&p.name, &p.type_str, wrapper_types))
+                .collect();
+
             if is_struct {
-                // Constructor: wrap the result in the pyclass wrapper
-                if method.name == "new" || method.output.type_str == "Self" {
-                    // This is a constructor that returns Self
-                    let arg_names: Vec<String> = method
-                        .inputs
-                        .iter()
-                        .map(|p| unwrap_arg_for_call(&p.name, &p.type_str, wrapper_types))
-                        .collect();
+                if *strategy == PyO3Strategy::MapErr {
+                    // Result-returning static method
+                    // Check if the result's Ok type is Self (a wrapper type) or something else
+                    let needs_self_wrap =
+                        method.name == "new" || method.output.type_str.contains("Self");
+                    if needs_self_wrap {
+                        code.push_str(&format!(
+                            "        _crate::{}::{}({}).map(|inner| {} {{ inner }}).map_err(|e| PyRuntimeError::new_err(format!(\"{{:?}}\", e)))\n",
+                            parent_name,
+                            method.name,
+                            arg_names.join(", "),
+                            parent_name,
+                        ));
+                    } else {
+                        code.push_str(&format!(
+                            "        _crate::{}::{}({}).map_err(|e| PyRuntimeError::new_err(format!(\"{{:?}}\", e)))\n",
+                            parent_name,
+                            method.name,
+                            arg_names.join(", "),
+                        ));
+                    }
+                } else if method.name == "new" || method.output.type_str == "Self" {
+                    // This is an infallible constructor that returns Self
                     code.push_str(&format!(
                         "        {} {{ inner: _crate::{}::{}({}) }}\n",
                         parent_name,
@@ -684,11 +792,6 @@ fn generate_method_wrapper(
                         arg_names.join(", ")
                     ));
                 } else {
-                    let arg_names: Vec<String> = method
-                        .inputs
-                        .iter()
-                        .map(|p| unwrap_arg_for_call(&p.name, &p.type_str, wrapper_types))
-                        .collect();
                     code.push_str(&format!(
                         "        _crate::{}::{}({})\n",
                         parent_name,
@@ -698,11 +801,6 @@ fn generate_method_wrapper(
                 }
             } else {
                 // Enum — directly delegate
-                let arg_names: Vec<String> = method
-                    .inputs
-                    .iter()
-                    .map(|p| unwrap_arg_for_call(&p.name, &p.type_str, wrapper_types))
-                    .collect();
                 code.push_str(&format!(
                     "        _crate::{}::{}({})\n",
                     parent_name,
@@ -753,12 +851,21 @@ fn generate_method_wrapper(
                 ret
             ));
 
+            // Helper: resolve "Self" in a type string to the concrete parent name
+            let resolve_self = |type_str: &str| -> String {
+                if type_str.contains("Self") {
+                    type_str.replace("Self", parent_name)
+                } else {
+                    type_str.to_string()
+                }
+            };
+
             // Generate the body
             let call_args: Vec<String> = method
                 .inputs
                 .iter()
                 .skip(1)
-                .map(|p| unwrap_arg_for_call(&p.name, &p.type_str, wrapper_types))
+                .map(|p| unwrap_arg_for_call(&p.name, &resolve_self(&p.type_str), wrapper_types))
                 .collect();
 
             let call_str = if is_struct {
@@ -791,6 +898,15 @@ fn generate_method_wrapper(
                 ));
             } else if method.output.type_str == "()" {
                 code.push_str(&format!("        {};\n", call_str));
+            } else if method.output.type_str == "Ordering"
+                || method.output.type_str == "std::cmp::Ordering"
+            {
+                // Convert Ordering to i8 for Python compatibility
+                code.push_str(&format!("        match {} {{\n", call_str));
+                code.push_str("            Ordering::Less => -1,\n");
+                code.push_str("            Ordering::Equal => 0,\n");
+                code.push_str("            Ordering::Greater => 1,\n");
+                code.push_str("        }\n");
             } else {
                 // Infallible — return the value directly (PyO3 auto-converts)
                 code.push_str(&format!("        {}\n", call_str));
@@ -810,8 +926,10 @@ fn method_return_type(method: &FunctionItem, strategy: &PyO3Strategy) -> String 
         } else {
             "PyResult<()>".to_string()
         }
-    } else if method.output.type_str == "()" || method.output.type_str == "Self" {
+    } else if method.output.type_str == "()" {
         "()".to_string()
+    } else if method.output.type_str == "Self" {
+        "Self".to_string()
     } else {
         ir_type_to_pyo3_type(&method.output.type_str)
     }
@@ -984,6 +1102,9 @@ fn ir_type_to_pyo3_type(type_str: &str) -> String {
         "String" => "String".to_string(),
         "Self" => "Self".to_string(),
 
+        // std::cmp::Ordering — not directly supported by PyO3, convert to i8
+        "Ordering" | "std::cmp::Ordering" => "i8".to_string(),
+
         // Reference types: &T, &mut T, &'a T
         _ if s.starts_with("&mut ") => {
             let inner = &s[5..].trim();
@@ -1015,9 +1136,16 @@ fn ir_type_to_pyo3_type(type_str: &str) -> String {
             }
         }
 
-        // Vec<T>
-        _ if s.starts_with("Vec<") && s.ends_with('>') => {
-            let inner = &s[4..s.len() - 1];
+        // Vec<T> (including fully-qualified paths like alloc::vec::Vec<T>)
+        _ if (s.starts_with("Vec<")
+            || s.starts_with("alloc::vec::Vec<")
+            || s.starts_with("std::vec::Vec<"))
+            && s.ends_with('>') =>
+        {
+            // Find the opening '<' to get the inner type
+            let angle_start = s.find('<').expect("starts_with Vec<");
+            // Normalize to just "Vec" for the output type
+            let inner = &s[angle_start + 1..s.len() - 1];
             format!("Vec<{}>", ir_type_to_pyo3_type(inner))
         }
 
@@ -1431,7 +1559,15 @@ mod tests {
             warnings: vec![],
         };
 
-        let code = generate_struct_wrapper(&s, &[], &mapping, true, true, &HashSet::new());
+        let code = generate_struct_wrapper(
+            &s,
+            &[],
+            &mapping,
+            true,
+            true,
+            &HashSet::new(),
+            &HashSet::new(),
+        );
         assert!(code.contains("#[pyclass]"));
         assert!(code.contains("pub struct Point {"));
         assert!(code.contains("inner: _crate::Point,"));
@@ -1532,7 +1668,15 @@ mod tests {
             warnings: vec![],
         };
 
-        let code = generate_struct_wrapper(&s, &methods, &mapping, true, true, &HashSet::new());
+        let code = generate_struct_wrapper(
+            &s,
+            &methods,
+            &mapping,
+            true,
+            true,
+            &HashSet::new(),
+            &HashSet::new(),
+        );
         assert!(code.contains("#[new]"));
         assert!(code.contains("fn new("));
         assert!(code.contains("fn distance(&self"));

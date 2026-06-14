@@ -529,7 +529,8 @@ fn try_parse_generic(type_str: &str, location: &str) -> Option<MappedType> {
         .collect();
 
     match base_name {
-        "Vec" => {
+        // Fully-qualified paths like alloc::vec::Vec
+        "Vec" | "alloc::vec::Vec" | "std::vec::Vec" => {
             if let Some(inner) = mapped_args.first() {
                 let py = format!("list[{}]", inner.python_type);
                 Some(MappedType {

@@ -10,14 +10,14 @@ members = [
 exclude = ["tests/fixtures/*"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 description = "Transform any Rust crate into a Python package"
 repository = "https://github.com/Zikithezikit/Vertumnus"
 
 [workspace.dependencies]
-vertumnus-inspector = { path = "crates/vertumnus-inspector", version = "0.2.0" }
-vertumnus-mapper = { path = "crates/vertumnus-mapper", version = "0.2.0" }
-vertumnus-generator = { path = "crates/vertumnus-generator", version = "0.2.0" }
-vertumnus-builder = { path = "crates/vertumnus-builder", version = "0.2.0" }
+vertumnus-inspector = { path = "crates/vertumnus-inspector", version = "0.3.0" }
+vertumnus-mapper = { path = "crates/vertumnus-mapper", version = "0.3.0" }
+vertumnus-generator = { path = "crates/vertumnus-generator", version = "0.3.0" }
+vertumnus-builder = { path = "crates/vertumnus-builder", version = "0.3.0" }

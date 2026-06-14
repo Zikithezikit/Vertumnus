@@ -189,6 +189,56 @@ impl IrItem {
             IrItem::Impl(i) => &i.doc,
         }
     }
+
+    /// Return all type strings used in this item (parameters, return types, fields).
+    /// Used by the binding generator to determine needed imports.
+    pub fn type_strings(&self) -> Vec<String> {
+        match self {
+            IrItem::Function(f) => {
+                let mut types: Vec<String> = f.inputs.iter().map(|p| p.type_str.clone()).collect();
+                types.push(f.output.type_str.clone());
+                types
+            }
+            IrItem::Struct(s) => {
+                let mut types: Vec<String> = s.fields.iter().map(|f| f.type_str.clone()).collect();
+                // Include method types
+                for m in &s.methods {
+                    types.extend(m.inputs.iter().map(|p| p.type_str.clone()));
+                    types.push(m.output.type_str.clone());
+                }
+                types
+            }
+            IrItem::Enum(e) => {
+                let mut types: Vec<String> = e
+                    .variants
+                    .iter()
+                    .flat_map(|v| v.fields.iter().map(|f| f.type_str.clone()))
+                    .collect();
+                // Include method types
+                for m in &e.methods {
+                    types.extend(m.inputs.iter().map(|p| p.type_str.clone()));
+                    types.push(m.output.type_str.clone());
+                }
+                types
+            }
+            IrItem::Trait(t) => {
+                let mut types: Vec<String> = Vec::new();
+                for m in &t.methods {
+                    types.extend(m.inputs.iter().map(|p| p.type_str.clone()));
+                    types.push(m.output.type_str.clone());
+                }
+                types
+            }
+            IrItem::Impl(i) => {
+                let mut types: Vec<String> = Vec::new();
+                for m in &i.methods {
+                    types.extend(m.inputs.iter().map(|p| p.type_str.clone()));
+                    types.push(m.output.type_str.clone());
+                }
+                types
+            }
+        }
+    }
 }
 
 impl IntermediateRepresentation {
