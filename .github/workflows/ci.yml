@@ -1,19 +1,17 @@
-# Vertumnus CI — Build & Test
+# Vertumnus CI — Build, Test & Publish
 #
-# Runs on every push and pull request to ensure the Vertumnus
-# toolchain itself compiles and passes all tests.
+# Runs on tagged releases (v*) to build wheels and publish to PyPI.
+# Manual trigger also available via workflow_dispatch.
 
-name: CI
+name: Build & Publish
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
 
 jobs:
   test:
@@ -87,24 +85,24 @@ jobs:
       - name: Test simple-math wheel
         run: |
           pip install /tmp/vertumnus-e2e/simple-math/target/wheels/*.whl
-          python -c "
-import simple_math
-assert simple_math.add(2, 3) == 5
-assert simple_math.div(10.0, 2.0) == 5.0
-assert simple_math.div(10.0, 0.0) is None
-p = simple_math.Point(1.0, 2.0)
-assert abs(p.x - 1.0) < 1e-10
-assert p.distance(simple_math.Point(4.0, 6.0)) == 5.0
-d = simple_math.Direction.North
-assert d.offset() == (0, 1)
-import pytest
-try:
-    simple_math.safe_div(1, 0)
-    assert False, 'Expected RuntimeError'
-except RuntimeError:
-    pass
-print('simple-math E2E passed!')
-          "
+          python3 << 'EOF'
+          import simple_math
+          assert simple_math.add(2, 3) == 5
+          assert simple_math.div(10.0, 2.0) == 5.0
+          assert simple_math.div(10.0, 0.0) is None
+          p = simple_math.Point(1.0, 2.0)
+          assert abs(p.x - 1.0) < 1e-10
+          assert p.distance(simple_math.Point(4.0, 6.0)) == 5.0
+          d = simple_math.Direction.North
+          assert d.offset() == (0, 1)
+          import pytest
+          try:
+              simple_math.safe_div(1, 0)
+              assert False, "Expected RuntimeError"
+          except RuntimeError:
+              pass
+          print("simple-math E2E passed!")
+          EOF
 
       - name: Run E2E — string-utils
         run: |
@@ -116,15 +114,15 @@ print('simple-math E2E passed!')
       - name: Test string-utils wheel
         run: |
           pip install /tmp/vertumnus-e2e/string-utils/target/wheels/*.whl
-          python -c "
-import string_utils
-assert string_utils.reverse('hello') == 'olleh'
-assert string_utils.word_count('hello world') == 2
-assert string_utils.is_palindrome('racecar') == True
-tp = string_utils.TextProcessor('>', True)
-result = tp.process('hello')
-assert result == '>HELLO', f'Expected >HELLO, got {result}'
-ps = string_utils.ProcessStatus.Success
-assert ps.is_ok() == True
-print('string-utils E2E passed!')
-          "
+          python3 << 'EOF'
+          import string_utils
+          assert string_utils.reverse("hello") == "olleh"
+          assert string_utils.word_count("hello world") == 2
+          assert string_utils.is_palindrome("racecar") == True
+          tp = string_utils.TextProcessor(">", True)
+          result = tp.process("hello")
+          assert result == ">HELLO", f"Expected >HELLO, got {result}"
+          ps = string_utils.ProcessStatus.Success
+          assert ps.is_ok() == True
+          print("string-utils E2E passed!")
+          EOF

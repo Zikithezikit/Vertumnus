@@ -92,7 +92,7 @@ fn run_rustdoc_json(crate_path: &Path) -> Result<String, InspectError> {
 
     let expected_file = doc_dir.join(format!(
         "{}.json",
-        crate_name_guess.as_deref().unwrap_or("unknown")
+        crate_name_guess.as_deref().unwrap_or("unknown_crate")
     ));
 
     if expected_file.exists() {

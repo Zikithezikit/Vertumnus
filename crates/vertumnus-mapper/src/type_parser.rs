@@ -89,7 +89,12 @@ fn map_primitive(s: &str) -> MappedType {
         "str" => MappedType::new("str", PyO3Strategy::Native),
         "()" => MappedType::new("None", PyO3Strategy::Native),
         "!" => MappedType::new("typing.NoReturn", PyO3Strategy::Native),
-        _ => panic!("map_primitive called with non-primitive: {s}"),
+        _ => MappedType::with_warning(
+            s,
+            PyO3Strategy::ManualStub,
+            format!("Unknown primitive type '{s}' — manual binding required"),
+            "map_primitive",
+        ),
     }
 }
 
@@ -169,7 +174,7 @@ fn is_generic_param(s: &str) -> bool {
     let s = s.trim();
     // Only single uppercase letters are bare generic parameters
     if s.len() == 1 {
-        let c = s.chars().next().unwrap();
+        let c = s.chars().next().expect("len == 1 implies at least one char");
         return c.is_ascii_uppercase() && c != '_';
     }
     // Two or more characters: could be a named type or a known std type.

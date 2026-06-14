@@ -236,7 +236,7 @@ fn extract_ref_prefix(type_str: &str) -> (&str, &str) {
                 let after_lifetime = after_ampersand[space_pos + 1..].trim();
                 let has_mut = after_lifetime.starts_with("mut ");
                 if has_mut {
-                    let rest = after_lifetime.strip_prefix("mut ").unwrap().trim();
+                    let rest = after_lifetime.strip_prefix("mut ").expect("has_mut guarantees 'mut ' prefix").trim();
                     // "&'lifetime mut " prefix
                     let prefix_end = 1 + space_pos + 1 + 4; // & + lifetime + ' ' + "mut "
                     return if prefix_end <= s.len() {
@@ -704,7 +704,8 @@ fn generate_method_wrapper(
                 Receiver::Ref => "&self",
                 Receiver::MutRef => "&mut self",
                 Receiver::Value => "self",
-                _ => unreachable!(),
+                // None is handled in the outer match arm
+                Receiver::None => unreachable!("Receiver::None is handled in the static method branch above"),
             };
 
             let params: Vec<String> = method
@@ -906,7 +907,7 @@ fn is_generic_field(type_str: &str) -> bool {
 
     // Bare uppercase single-letter identifiers are generic params
     if trimmed.len() == 1 {
-        let c = trimmed.chars().next().unwrap();
+        let c = trimmed.chars().next().expect("len == 1 implies at least one char");
         return c.is_ascii_uppercase() && c.is_ascii_alphabetic();
     }
     // Multi-letter all-uppercase generic params like `TKey`, `TValue`
@@ -1016,7 +1017,7 @@ fn ir_type_to_pyo3_type(type_str: &str) -> String {
 
         // Arc<T>, Rc<T>
         _ if (s.starts_with("Arc<") || s.starts_with("Rc<")) && s.ends_with('>') => {
-            let angle_start = s.find('<').unwrap();
+            let angle_start = s.find('<').expect("starts_with('Arc<') or 'Rc<' guarantees '<'");
             let inner = &s[angle_start + 1..s.len() - 1];
             ir_type_to_pyo3_type(inner)
         }
@@ -1054,7 +1055,7 @@ fn ir_type_to_pyo3_type(type_str: &str) -> String {
         _ => {
             // If it looks like a generic parameter (single uppercase letter), use PyAny
             let trimmed = s.trim();
-            if trimmed.len() == 1 && trimmed.chars().next().unwrap().is_ascii_uppercase() {
+            if trimmed.len() == 1 && trimmed.chars().next().expect("len == 1 implies at least one char").is_ascii_uppercase() {
                 "Bound<'_, PyAny>".to_string()
             } else {
                 trimmed.to_string()

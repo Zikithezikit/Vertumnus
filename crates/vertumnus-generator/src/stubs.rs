@@ -556,7 +556,7 @@ fn ir_type_to_python_type(type_str: &str) -> String {
         // Generic named types
         _ if s.contains('<') && s.ends_with('>') => {
             // Try to parse as a named generic
-            let angle_start = s.find('<').unwrap();
+            let angle_start = s.find('<').expect("contains('<') guarantees '<' is present");
             let base = &s[..angle_start];
             base.to_string()
         }
