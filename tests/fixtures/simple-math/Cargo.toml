@@ -1,0 +1,9 @@
+[package]
+name = "simple-math"
+version = "0.1.0"
+edition = "2021"
+
+# Explicitly declare this is not part of the Vertumnus workspace
+[workspace]
+
+[dependencies]

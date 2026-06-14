@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Zikithezikit/Vertumnus/schemas/ir.schema.json",
+  "title": "Vertumnus Intermediate Representation",
+  "description": "The IR is the contract between the Inspector and all downstream phases. It must remain stable and versioned.",
+  "type": "object",
+  "required": ["vertumnus_ir_version", "crate_name", "crate_version", "items"],
+  "properties": {
+    "vertumnus_ir_version": {
+      "type": "string",
+      "description": "Semantic version of the IR schema",
+      "pattern": "^\\d+\\.\\d+$"
+    },
+    "crate_name": {
+      "type": "string",
+      "description": "Name of the Rust crate being inspected"
+    },
+    "crate_version": {
+      "type": "string",
+      "description": "Version of the Rust crate being inspected"
+    },
+    "items": {
+      "type": "array",
+      "description": "Public API items exposed by the crate",
+      "items": {
+        "$ref": "#/$defs/ir_item"
+      }
+    }
+  },
+  "$defs": {
+    "ir_type": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "The Rust type string (e.g. 'i64', 'Option<String>', 'Vec<f64>')"
+        }
+      },
+      "additionalProperties": true
+    },
+    "function_parameter": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Parameter name"
+        },
+        "type": {
+          "type": "string",
+          "description": "Parameter type string"
+        }
+      }
+    },
+    "struct_field": {
+      "type": "object",
+      "required": ["name", "type", "visibility"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Field name"
+        },
+        "type": {
+          "type": "string",
+          "description": "Field type string"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public", "private"],
+          "description": "Field visibility"
+        }
+      }
+    },
+    "enum_variant": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Variant name"
+        },
+        "fields": {
+          "type": "array",
+          "description": "Fields of the variant (if any)",
+          "items": {
+            "$ref": "#/$defs/struct_field"
+          }
+        },
+        "discriminant": {
+          "type": "string",
+          "description": "Numeric discriminant value if applicable"
+        }
+      }
+    },
+    "function_item": {
+      "type": "object",
+      "required": ["kind", "name", "inputs", "output"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["function"]
+        },
+        "name": {
+          "type": "string"
+        },
+        "doc": {
+          "type": "string",
+          "description": "Doc comment text"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/function_parameter"
+          }
+        },
+        "output": {
+          "$ref": "#/$defs/ir_type"
+        },
+        "is_unsafe": {
+          "type": "boolean",
+          "default": false
+        },
+        "is_async": {
+          "type": "boolean",
+          "default": false
+        },
+        "has_generics": {
+          "type": "boolean",
+          "default": false
+        },
+        "visibility": {
+          "type": "string",
+          "default": "public"
+        }
+      }
+    },
+    "struct_item": {
+      "type": "object",
+      "required": ["kind", "name", "fields"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["struct"]
+        },
+        "name": {
+          "type": "string"
+        },
+        "doc": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/struct_field"
+          }
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/function_item"
+          }
+        },
+        "has_lifetimes": {
+          "type": "boolean",
+          "default": false
+        },
+        "has_generics": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "enum_item": {
+      "type": "object",
+      "required": ["kind", "name", "variants"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["enum"]
+        },
+        "name": {
+          "type": "string"
+        },
+        "doc": {
+          "type": "string"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/enum_variant"
+          }
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/function_item"
+          }
+        },
+        "has_lifetimes": {
+          "type": "boolean",
+          "default": false
+        },
+        "has_generics": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "trait_item": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["trait"]
+        },
+        "name": {
+          "type": "string"
+        },
+        "doc": {
+          "type": "string"
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/function_item"
+          }
+        },
+        "has_lifetimes": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "impl_item": {
+      "type": "object",
+      "required": ["kind", "type_name"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["impl"]
+        },
+        "type_name": {
+          "type": "string",
+          "description": "The type the impl block is for"
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/function_item"
+          }
+        },
+        "trait_name": {
+          "type": "string",
+          "description": "If this is a trait impl, the trait name"
+        },
+        "doc": {
+          "type": "string"
+        }
+      }
+    },
+    "ir_item": {
+      "type": "object",
+      "oneOf": [
+        { "$ref": "#/$defs/function_item" },
+        { "$ref": "#/$defs/struct_item" },
+        { "$ref": "#/$defs/enum_item" },
+        { "$ref": "#/$defs/trait_item" },
+        { "$ref": "#/$defs/impl_item" }
+      ]
+    }
+  }
+}

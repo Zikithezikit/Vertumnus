@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "references": {
+    "spec": {
+      "path": ".opencode/VERTUMNUS_SPEC.md",
+      "description": "Use for Vertumnus project architecture, IR schema, type mapping, CLI interface, and milestone tracking"
+    },
+    "pyo3": {
+      "repository": "PyO3/pyo3",
+      "description": "Use for PyO3 API patterns, #[pyclass], #[pyfunction], and pyo3 crate usage in generated bindings"
+    },
+    "maturin": {
+      "repository": "PyO3/maturin",
+      "description": "Use for maturin build configuration, pyproject.toml setup, and wheel building"
+    }
+  },
+  "instructions": [".opencode/VERTUMNUS_SPEC.md"],
+  "agent": {
+    "vertumnus-dev": {
+      "description": "Primary agent for implementing the Vertumnus Rust-to-Python binding framework",
+      "mode": "primary"
+    }
+  },
+  "skills": {
+    "paths": [".opencode/skills"]
+  }
+}

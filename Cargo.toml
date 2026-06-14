@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vertumnus-cli",
+    "crates/vertumnus-inspector",
+    "crates/vertumnus-mapper",
+    "crates/vertumnus-generator",
+    "crates/vertumnus-builder",
+]
+exclude = ["tests/fixtures/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"

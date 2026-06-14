@@ -1,0 +1,16 @@
+/target
+**/target/
+**/*.rs.bk
+.env
+
+# Vertumnus output directories
+vertumnus-out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node (opencode)
+node_modules/
