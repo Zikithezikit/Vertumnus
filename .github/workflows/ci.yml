@@ -73,8 +73,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install maturin
-        run: pip install maturin
+      - name: Install maturin and test deps
+        run: pip install maturin pytest
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
