@@ -1,0 +1,9 @@
+[package]
+name = "string-utils"
+version = "0.2.0"
+edition = "2021"
+
+# Explicitly declare this is not part of the Vertumnus workspace
+[workspace]
+
+[dependencies]

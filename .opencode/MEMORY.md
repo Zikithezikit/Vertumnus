@@ -1,9 +1,9 @@
 # Vertumnus — Project Memory
 
 > Last updated: 2026-06-14
-> Current branch: `main` (pushed to origin)
-> Last commit: `d5a8ac8` — M1: Inspector + IR — initial project scaffold
-> M2 (Type Mapper) and M3 (Binding Generator) are complete.
+> Current branch: `main` (not yet pushed)
+> M1 (Inspector+IR) ✅ M2 (Type Mapper) ✅ M3 (Binding Generator) ✅ M4 (Builder+CLI) ✅
+> All 93 tests passing. Two fixture crates produce installable wheels.
 
 ## Milestone Completion Status
 
@@ -154,7 +154,7 @@ crates/vertumnus-cli/src/
 
 **Type coverage in generated code:**
 | Rust → PyO3 | Status |
-|---|---|
+|---|---|---|
 | Free functions → `#[pyfunction]` | ✅ |
 | Infallible → `Ok(val)` | ✅ |
 | `Result<T,E>` → `PyResult<T>` + `.map_err(PyRuntimeError)` | ✅ |
@@ -166,6 +166,57 @@ crates/vertumnus-cli/src/
 | Data-carrying enum → ManualStub with warning | ✅ |
 | Lifetime/Generic struct → ManualStub | ✅ |
 | Trait → `todo!()` stub | ✅ |
+
+### M4 (Builder + CLI) ✅ COMPLETE
+
+```
+Branch: main (not yet committed)
+```
+
+**What was built:**
+- `crates/vertumnus-builder/` — new workspace member with 8 unit tests
+- `builder/lib.rs` — Builder orchestration:
+  - `generate_pyproject_toml()` — produces `pyproject.toml` with maturin build config, `module-name = "{pkg}._core"`
+  - `generate_cargo_toml()` — produces `Cargo.toml` with pyo3 0.22, path dep to original crate, `[lib] name = "_core"`, `crate-type = ["cdylib"]`
+  - `scaffold_all()` — writes both pyproject.toml and Cargo.toml to output directory
+  - `run_maturin_build()` — invokes `maturin build --release`, returns path to built `.whl`
+  - `run_maturin_develop()` — invokes `maturin develop` for local development
+  - `read_crate_name()` — parses crate name from original `Cargo.toml` (preserves hyphens)
+- CLI `wrap` command extended to invoke builder after successful generation:
+  1. Inspector (rustdoc JSON → IR)
+  2. Type Mapper (IR → annotated IR)
+  3. Binding Generator (annotated IR → Rust + stubs)
+  4. Builder (scaffold pyproject.toml + Cargo.toml → run `maturin build --release`)
+- Codegen fixes for M4 compatibility:
+  - Added `native_module_name` field to `GeneratorConfig` (default `"_core"`)
+  - `#[pymodule]` function name → `fn _core(...)` (not `fn package_name(...)`)
+  - `__init__.py` imports from `._core` (not `.package_name`)
+  - `ir_type_to_pyo3_type("str")` returns `"str"` (not `"&str"` which caused `&&str`)
+  - Field getters clone non-Copy types (String, etc.)
+  - Default `derive_debug = false` — guarantees compatibility without Debug bound
+
+**E2E Test Results (both fixtures pass):**
+- `simple-math` fixture functions: `add`, `div`, `magnitude`, `factorial_loop`, `safe_div`
+- `simple-math` struct: `Point` (x, y, z fields + `distance()` method)
+- `simple-math` enum: `Direction` (North, South variants + `offset()` method)
+- `string-utils` fixture functions: `reverse`, `word_count`, `is_palindrome`, `truncate`
+- `string-utils` struct: `TextProcessor` (prefix, uppercase fields + `process()`, `greet()` methods)
+- `string-utils` enum: `ProcessStatus` (Success, Failure variants + `is_ok()` method)
+- Errors: `safe_div(1,0)` raises `RuntimeError` ✅
+- Warnings: Lifetimes (`&'static str`) → emitted but elided for Python binding ✅
+- Total tests: 93 passing (8 builder + 28 generator + 47 mapper + 2 inspector + ...)
+
+**Key files (new/updated):**
+```
+crates/vertumnus-builder/
+  Cargo.toml             # deps: serde, serde_json, thiserror, anyhow
+  src/lib.rs             # Builder: scaffold + maturin invocation (440+ lines, 8 tests)
+crates/vertumnus-generator/src/
+  generator.rs           # GeneratorConfig.native_module_name field added
+  codegen.rs             # ir_type_to_pyo3_type fix, is_copy_type, field clone
+  stubs.rs               # generate_init_py uses native_module_name
+tests/fixtures/string-utils/   # Second test fixture (NEW)
+```
 
 ---
 

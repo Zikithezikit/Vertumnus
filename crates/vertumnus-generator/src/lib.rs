@@ -44,6 +44,7 @@ pub use stubs::GeneratedStubs;
 pub fn generate(annotated: &vertumnus_mapper::annotated_ir::AnnotatedIr, package_name: &str) -> Result<GeneratedFiles, GenError> {
     let config = GeneratorConfig {
         package_name: package_name.to_string(),
+        native_module_name: "_core".to_string(),
         ..Default::default()
     };
     let gen = Generator::new(annotated.clone(), config);

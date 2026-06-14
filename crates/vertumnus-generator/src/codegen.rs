@@ -415,7 +415,12 @@ pub fn generate_struct_wrapper(
             "    fn {}(&self) -> {} {{\n",
             field.name, py_return
         ));
-        code.push_str(&format!("        self.inner.{}\n", field.name));
+        // Clone non-Copy types (like String) to avoid move errors
+        if is_copy_type(&field.type_str) {
+            code.push_str(&format!("        self.inner.{}\n", field.name));
+        } else {
+            code.push_str(&format!("        self.inner.{}.clone()\n", field.name));
+        }
         code.push_str("    }\n\n");
     }
 
@@ -832,6 +837,16 @@ fn enum_self_conversion(parent_name: &str) -> String {
     format!("&_crate::{}::from(self.clone())", parent_name)
 }
 
+/// Check if a Rust type implements `Copy` (primitives that PyO3 can extract by value).
+fn is_copy_type(type_str: &str) -> bool {
+    matches!(
+        type_str.trim(),
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
+            | "u8" | "u16" | "u32" | "u64" | "u128" | "usize"
+            | "f32" | "f64" | "bool" | "char"
+    )
+}
+
 /// Check if a field type string is a bare generic parameter (single uppercase letter like `T`, `U`)
 /// or contains generic type variables.
 fn is_generic_field(type_str: &str) -> bool {
@@ -862,7 +877,8 @@ fn ir_type_to_pyo3_type(type_str: &str) -> String {
         "f32" | "f64" => s.to_string(),
         "bool" => "bool".to_string(),
         "char" => "char".to_string(),
-        "str" | "&str" => "&str".to_string(),
+        "str" => "str".to_string(),
+        "&str" => "&str".to_string(),
         "()" => "()".to_string(),
         "String" => "String".to_string(),
         "Self" => "Self".to_string(),

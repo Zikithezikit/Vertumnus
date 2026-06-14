@@ -215,8 +215,9 @@ fn main() -> anyhow::Result<()> {
 
             let config = vertumnus_generator::GeneratorConfig {
                 package_name: package_name_safe.clone(),
-                derive_debug: true,
-                derive_eq: true,
+                native_module_name: "_core".to_string(),
+                derive_debug: false,
+                derive_eq: false,
                 overwrite,
             };
             let gen = vertumnus_generator::Generator::new(annotated, config);
@@ -224,13 +225,6 @@ fn main() -> anyhow::Result<()> {
 
             if verbose {
                 eprintln!("✅ Bindings generated successfully.");
-            }
-
-            // Phase 4: Write files (builder phase in M4 will add maturin setup)
-            if !no_build {
-                if verbose {
-                    eprintln!("ℹ️  Build phase not yet implemented (M4). Use --no-build for now.");
-                }
             }
 
             // Write output files
@@ -247,8 +241,63 @@ fn main() -> anyhow::Result<()> {
             write_generated_files(&out_path, &package_name_safe, &files, verbose, overwrite)?;
 
             if verbose {
-                eprintln!("📦 Wrote bindings to: {}", out_path.display());
-                eprintln!("   Package name: {}", package_name_safe);
+                eprintln!("📄 Wrote bindings to: {}", out_path.display());
+            }
+
+            // Phase 4: Scaffold build configuration and optionally build
+            if !no_build {
+                if verbose {
+                    eprintln!("🏗️  Scaffolding build configuration...");
+                }
+
+                let canonical_path = path.canonicalize().map_err(|e| {
+                    anyhow::anyhow!("Cannot resolve crate path: {e}")
+                })?;
+
+                // Read the actual crate name from Cargo.toml (preserves hyphens)
+                let original_crate_name =
+                    vertumnus_builder::read_crate_name(&canonical_path)
+                        .unwrap_or_else(|_| ir.crate_name.clone());
+
+                let builder_config = vertumnus_builder::BuilderConfig {
+                    output_dir: out_path.clone(),
+                    crate_path: canonical_path,
+                    package_name: package_name_safe.clone(),
+                    crate_name: original_crate_name,
+                    crate_version: ir.crate_version.clone(),
+                };
+
+                // Write pyproject.toml and Cargo.toml
+                let written = vertumnus_builder::scaffold_all(&builder_config)
+                    .map_err(|e| anyhow::anyhow!("Build scaffolding failed: {e}"))?;
+
+                if verbose {
+                    for w in &written {
+                        eprintln!("   📄 Created: {}", w.display());
+                    }
+                }
+
+                // Invoke maturin build
+                if verbose {
+                    eprintln!("🔨 Running maturin build (release mode)...");
+                }
+
+                let wheel = vertumnus_builder::run_maturin_build(&builder_config, true)
+                    .map_err(|e| anyhow::anyhow!("maturin build failed: {e}"))?;
+
+                match wheel {
+                    Some(path) => {
+                        eprintln!("✅ Built wheel: {}", path.display());
+                    }
+                    None => {
+                        eprintln!("✅ maturin build completed (wheel location unknown)");
+                    }
+                }
+            } else {
+                if verbose {
+                    eprintln!("ℹ️  Skipping build (--no-build).");
+                    eprintln!("   Run `maturin build --release` in '{}' to build.", out_path.display());
+                }
             }
         }
 
@@ -355,8 +404,9 @@ fn main() -> anyhow::Result<()> {
 
             let config = vertumnus_generator::GeneratorConfig {
                 package_name: package_name_safe.clone(),
-                derive_debug: true,
-                derive_eq: true,
+                native_module_name: "_core".to_string(),
+                derive_debug: false,
+                derive_eq: false,
                 overwrite,
             };
             let gen = vertumnus_generator::Generator::new(annotated, config);

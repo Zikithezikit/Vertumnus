@@ -23,6 +23,11 @@ pub use crate::stubs::GeneratedStubs;
 pub struct GeneratorConfig {
     /// The Python package name (defaults to crate name)
     pub package_name: String,
+    /// The native extension module name (defaults to "_core").
+    /// This is the last component of `module-name` in pyproject.toml's `[tool.maturin]`,
+    /// and must match the `#[pymodule]` function name in generated Rust code.
+    /// Example: if the PyO3 module is imported as `my_pkg._core`, this should be `"_core"`.
+    pub native_module_name: String,
     /// Whether to derive Debug for pyclasses (generates `__repr__`)
     pub derive_debug: bool,
     /// Whether to derive PartialEq for pyclasses (generates `__eq__`)
@@ -35,7 +40,8 @@ impl Default for GeneratorConfig {
     fn default() -> Self {
         Self {
             package_name: String::new(),
-            derive_debug: true,
+            native_module_name: "_core".to_string(),
+            derive_debug: false,
             derive_eq: true,
             overwrite: false,
         }
@@ -270,12 +276,18 @@ impl Generator {
         // PYMODULE FUNCTION: Registration code only
         // ===================================================================
 
+        let native_mod_name = if self.config.native_module_name.is_empty() {
+            package_name
+        } else {
+            &self.config.native_module_name
+        };
+
         code.push_str(&format!(
             "/// Vertumnus-generated Python bindings for `{}` v{}\n",
             self.annotated.crate_name, self.annotated.crate_version
         ));
         code.push_str("#[pymodule]\n");
-        code.push_str(&format!("fn {}(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {{\n", package_name));
+        code.push_str(&format!("fn {}(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {{\n", native_mod_name));
 
         // Get the crate doc string
         let crate_doc = self.get_crate_doc();
@@ -328,9 +340,15 @@ impl Generator {
 
     /// Generate the `__init__.py` shim file.
     fn generate_init_py(&self, package_name: &str) -> String {
+        let native_mod_name = if self.config.native_module_name.is_empty() {
+            package_name
+        } else {
+            &self.config.native_module_name
+        };
         stubs::generate_init_py(
             &self.annotated,
             package_name,
+            native_mod_name,
         )
     }
 
@@ -510,12 +528,13 @@ mod tests {
         let annotated = make_test_annotated();
         let config = GeneratorConfig {
             package_name: "my_package".to_string(),
+            native_module_name: "my_package".to_string(), // match old behavior
             ..Default::default()
         };
         let gen = Generator::new(annotated, config);
         let files = gen.generate().unwrap();
 
-        // The module function should use the package name
+        // The module function should use the package name (since native_module_name == package_name)
         assert!(files.lib_rs.contains("fn my_package("), "Should use package name");
         assert!(files.pyi.contains("def add"), ".pyi should contain function stubs");
     }
