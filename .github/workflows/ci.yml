@@ -28,11 +28,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           components: clippy, rustfmt
+
+      - name: Install nightly (for integration tests)
+        run: rustup toolchain install nightly --force
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -63,7 +66,7 @@ jobs:
           toolchain: stable
 
       - name: Install nightly (for rustdoc JSON)
-        run: rustup toolchain install nightly --profile minimal -c rustc
+        run: rustup toolchain install nightly --force
 
       - name: Install Python
         uses: actions/setup-python@v5
