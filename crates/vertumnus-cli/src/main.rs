@@ -75,6 +75,10 @@ enum Commands {
         /// Output file for the annotated IR JSON (default: stdout)
         #[arg(long)]
         output: Option<PathBuf>,
+
+        /// Verbose output
+        #[arg(long, short)]
+        verbose: bool,
     },
 
     /// Phase 3: Generate Rust bindings and .pyi stubs from annotated IR
@@ -108,15 +112,37 @@ fn main() -> anyhow::Result<()> {
 
             let ir = vertumnus_inspector::inspect_crate(&path)?;
 
+            // M2: Type mapping phase
+            if verbose {
+                eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
+            }
+
+            let annotated = vertumnus_mapper::map_ir(&ir)?;
+
             if dry_run {
-                println!("{}", ir.to_json_pretty()?);
+                // Dry-run: output annotated IR and exit
+                println!("{}", annotated.to_json_pretty()?);
                 return Ok(());
             }
 
-            // TODO M4: mapper, generator, builder phases
             if verbose {
-                eprintln!("✅ Inspection complete. {} items found.", ir.items.len());
-                eprintln!("ℹ️  Remaining phases (mapper, generator, builder) not yet implemented.");
+                let total_warnings: usize = annotated
+                    .items
+                    .iter()
+                    .map(|i| i.mapping.warnings.len())
+                    .sum();
+                eprintln!("✅ Type mapping complete. {} warnings.", total_warnings);
+                for item in &annotated.items {
+                    for w in &item.mapping.warnings {
+                        eprintln!("  ⚠️  [{}] {}", w.location, w.message);
+                    }
+                }
+            }
+
+            // TODO M3: generator phase
+            // TODO M4: builder phase
+            if verbose {
+                eprintln!("ℹ️  Remaining phases (generator, builder) not yet implemented.");
             }
 
             if !no_build {
@@ -172,16 +198,55 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        Commands::Map { path, output } => {
+        Commands::Map {
+            path,
+            output,
+            verbose,
+        } => {
             let ir_content = std::fs::read_to_string(&path)?;
-            let _ir = vertumnus_inspector::IntermediateRepresentation::from_json(&ir_content)?;
+            let ir = vertumnus_inspector::IntermediateRepresentation::from_json(&ir_content)?;
 
-            // TODO M2: Call mapper phase
-            eprintln!("⚠️  Type mapper not yet implemented (M2).");
+            if verbose {
+                eprintln!(
+                    "🗺️  Mapping IR for crate '{}' v{} ({} items)...",
+                    ir.crate_name,
+                    ir.crate_version,
+                    ir.items.len()
+                );
+            }
 
-            if let Some(out_path) = output {
-                // Just copy the IR for now as placeholder
-                std::fs::write(&out_path, &ir_content)?;
+            let annotated = vertumnus_mapper::map_ir(&ir)?;
+
+            if verbose {
+                let total_warnings: usize = annotated
+                    .items
+                    .iter()
+                    .map(|i| i.mapping.warnings.len())
+                    .sum();
+                eprintln!("✅ Mapping complete. {} warnings generated.", total_warnings);
+                if total_warnings > 0 {
+                    for item in &annotated.items {
+                        for w in &item.mapping.warnings {
+                            eprintln!("  ⚠️  [{}] {}", w.location, w.message);
+                        }
+                    }
+                }
+            }
+
+            let json = annotated.to_json_pretty()?;
+
+            match output {
+                Some(out_path) => {
+                    std::fs::write(&out_path, &json)?;
+                    if verbose {
+                        eprintln!("📄 Annotated IR written to: {}", out_path.display());
+                    } else {
+                        eprintln!("Annotated IR written to: {}", out_path.display());
+                    }
+                }
+                None => {
+                    println!("{}", json);
+                }
             }
         }
 

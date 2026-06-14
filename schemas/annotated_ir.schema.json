@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Zikithezikit/Vertumnus/schemas/annotated_ir.schema.json",
+  "title": "Vertumnus Annotated Intermediate Representation",
+  "description": "The annotated IR is the output of Phase 2 (Type Mapper). It decorates each symbol from the original IR with Python type mappings, PyO3 strategies, and warnings.",
+  "type": "object",
+  "required": ["vertumnus_annotated_ir_version", "crate_name", "crate_version", "items"],
+  "properties": {
+    "vertumnus_annotated_ir_version": {
+      "type": "string",
+      "description": "Semantic version of the annotated IR schema",
+      "pattern": "^\\d+\\.\\d+$"
+    },
+    "crate_name": {
+      "type": "string",
+      "description": "Name of the Rust crate"
+    },
+    "crate_version": {
+      "type": "string",
+      "description": "Version of the Rust crate"
+    },
+    "items": {
+      "type": "array",
+      "description": "Annotated public API items",
+      "items": {
+        "$ref": "#/$defs/annotated_item"
+      }
+    }
+  },
+  "$defs": {
+    "annotated_item": {
+      "type": "object",
+      "required": ["original", "mapping"],
+      "properties": {
+        "original": {
+          "description": "The original IR item (see ir.schema.json for structure)"
+        },
+        "mapping": {
+          "$ref": "#/$defs/type_mapping"
+        }
+      }
+    },
+    "type_mapping": {
+      "type": "object",
+      "required": ["python_type", "pyo3_strategy"],
+      "properties": {
+        "python_type": {
+          "type": "string",
+          "description": "The Python type string (e.g., 'int', 'list[float]', 'Point')"
+        },
+        "pyo3_strategy": {
+          "type": "string",
+          "enum": ["native", "py_class", "py_enum", "py_function", "map_err", "manual_stub"],
+          "description": "The PyO3 binding strategy to use"
+        },
+        "warnings": {
+          "type": "array",
+          "description": "Warnings about the type mapping",
+          "items": {
+            "$ref": "#/$defs/mapping_warning"
+          }
+        }
+      }
+    },
+    "mapping_warning": {
+      "type": "object",
+      "required": ["message", "location"],
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "The warning message"
+        },
+        "location": {
+          "type": "string",
+          "description": "Where the warning applies (e.g., 'function_name.param_name')"
+        }
+      }
+    }
+  }
+}

@@ -2,3 +2,22 @@
 //!
 //! Phase 2 of the Vertumnus pipeline: maps Rust types in the IR to Python
 //! types and PyO3 strategies, producing an annotated IR.
+//!
+//! ## Usage
+//!
+//! ```rust,no_run
+//! use vertumnus_mapper::map_ir;
+//! use vertumnus_inspector::IntermediateRepresentation;
+//!
+//! let ir = IntermediateRepresentation::new("my_crate".into(), "1.0.0".into());
+//! let annotated = map_ir(&ir).unwrap();
+//! println!("{}", annotated.to_json_pretty().unwrap());
+//! ```
+
+pub mod annotated_ir;
+pub mod mapper;
+pub mod type_parser;
+
+pub use annotated_ir::{AnnotatedIr, AnnotatedItem, MappingWarning, PyO3Strategy, TypeMapping};
+pub use mapper::{map_ir, MapError};
+pub use type_parser::{map_named_type, map_type, MappedType};
