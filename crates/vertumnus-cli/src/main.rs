@@ -89,7 +89,73 @@ enum Commands {
         /// Output directory for generated files
         #[arg(long, default_value = "./vertumnus-out")]
         output: PathBuf,
+
+        /// Python package name (default: crate name from annotated IR)
+        #[arg(long)]
+        package_name: Option<String>,
+
+        /// Print generation details to stdout
+        #[arg(long, short)]
+        verbose: bool,
+
+        /// Overwrite existing output files
+        #[arg(long)]
+        overwrite: bool,
     },
+}
+
+fn write_generated_files(
+    output_dir: &PathBuf,
+    package_name: &str,
+    files: &vertumnus_generator::GeneratedFiles,
+    verbose: bool,
+    overwrite: bool,
+) -> anyhow::Result<()> {
+    // Create directory structure
+    let src_dir = output_dir.join("src");
+    let python_dir = output_dir.join("python").join(package_name);
+
+    // Check for existing files if not overwrite
+    if !overwrite {
+        for path in &[
+            src_dir.join("lib.rs"),
+            output_dir.join(format!("{}.pyi", package_name)),
+            python_dir.join("__init__.py"),
+        ] {
+            if path.exists() {
+                anyhow::bail!(
+                    "Output file '{}' exists. Use --overwrite to overwrite.",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    std::fs::create_dir_all(&src_dir)?;
+    std::fs::create_dir_all(&python_dir)?;
+
+    // Write src/lib.rs
+    let lib_rs_path = src_dir.join("lib.rs");
+    std::fs::write(&lib_rs_path, &files.lib_rs)?;
+    if verbose {
+        eprintln!("📄 Generated: {}", lib_rs_path.display());
+    }
+
+    // Write .pyi stubs
+    let pyi_path = output_dir.join(format!("{}.pyi", package_name));
+    std::fs::write(&pyi_path, &files.pyi)?;
+    if verbose {
+        eprintln!("📄 Generated: {}", pyi_path.display());
+    }
+
+    // Write __init__.py
+    let init_path = python_dir.join("__init__.py");
+    std::fs::write(&init_path, &files.init_py)?;
+    if verbose {
+        eprintln!("📄 Generated: {}", init_path.display());
+    }
+
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -105,14 +171,14 @@ fn main() -> anyhow::Result<()> {
             verbose,
             overwrite,
         } => {
-            // M1: Implement full wrap pipeline
+            // Phase 1: Inspect
             if verbose {
                 eprintln!("🔍 Inspecting crate at: {}", path.display());
             }
 
             let ir = vertumnus_inspector::inspect_crate(&path)?;
 
-            // M2: Type mapping phase
+            // Phase 2: Type mapping
             if verbose {
                 eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
             }
@@ -139,17 +205,35 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            // TODO M3: generator phase
-            // TODO M4: builder phase
+            // Phase 3: Generate bindings
+            let package_name = package_name.unwrap_or_else(|| ir.crate_name.clone());
+            let package_name_safe = package_name.replace('-', "_");
+
             if verbose {
-                eprintln!("ℹ️  Remaining phases (generator, builder) not yet implemented.");
+                eprintln!("🔧 Generating Python bindings for '{}'...", package_name_safe);
             }
 
+            let config = vertumnus_generator::GeneratorConfig {
+                package_name: package_name_safe.clone(),
+                derive_debug: true,
+                derive_eq: true,
+                overwrite,
+            };
+            let gen = vertumnus_generator::Generator::new(annotated, config);
+            let files = gen.generate()?;
+
+            if verbose {
+                eprintln!("✅ Bindings generated successfully.");
+            }
+
+            // Phase 4: Write files (builder phase in M4 will add maturin setup)
             if !no_build {
-                eprintln!("Warning: --no-build not specified but build not yet supported.");
+                if verbose {
+                    eprintln!("ℹ️  Build phase not yet implemented (M4). Use --no-build for now.");
+                }
             }
 
-            // Write IR to output file
+            // Write output files
             let out_path = if out.exists() && !overwrite {
                 anyhow::bail!(
                     "Output directory '{}' exists. Use --overwrite to overwrite.",
@@ -160,15 +244,11 @@ fn main() -> anyhow::Result<()> {
                 out
             };
 
-            let ir_path = out_path.join("ir.json");
-            std::fs::write(&ir_path, ir.to_json_pretty()?)?;
-            if verbose {
-                eprintln!("📄 IR written to: {}", ir_path.display());
-            }
+            write_generated_files(&out_path, &package_name_safe, &files, verbose, overwrite)?;
 
-            let package_name = package_name.unwrap_or_else(|| ir.crate_name.clone());
             if verbose {
-                eprintln!("📦 Package name: {}", package_name);
+                eprintln!("📦 Wrote bindings to: {}", out_path.display());
+                eprintln!("   Package name: {}", package_name_safe);
             }
         }
 
@@ -250,13 +330,46 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        Commands::Generate { path, output } => {
-            let _ir_content = std::fs::read_to_string(&path)?;
+        Commands::Generate {
+            path,
+            output,
+            package_name,
+            verbose,
+            overwrite,
+        } => {
+            if verbose {
+                eprintln!("🔧 Generating bindings from annotated IR: {}", path.display());
+            }
 
-            // TODO M3: Call generator phase
-            eprintln!("⚠️  Binding generator not yet implemented (M3).");
+            let ir_content = std::fs::read_to_string(&path)?;
+            let annotated =
+                vertumnus_mapper::annotated_ir::AnnotatedIr::from_json(&ir_content)?;
 
+            let package_name = package_name.unwrap_or_else(|| annotated.crate_name.clone());
+            let package_name_safe = package_name.replace('-', "_");
+
+            if verbose {
+                eprintln!("   Package name: {}", package_name_safe);
+                eprintln!("   Items to generate: {}", annotated.items.len());
+            }
+
+            let config = vertumnus_generator::GeneratorConfig {
+                package_name: package_name_safe.clone(),
+                derive_debug: true,
+                derive_eq: true,
+                overwrite,
+            };
+            let gen = vertumnus_generator::Generator::new(annotated, config);
+
+            // Create output directory
             std::fs::create_dir_all(&output)?;
+
+            let files = gen.generate()?;
+            write_generated_files(&output, &package_name_safe, &files, verbose, overwrite)?;
+
+            if verbose {
+                eprintln!("✅ Bindings written to: {}", output.display());
+            }
         }
     }
 

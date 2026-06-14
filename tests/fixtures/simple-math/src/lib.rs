@@ -32,6 +32,7 @@ pub fn magnitude(x: f64, y: f64, z: f64) -> f64 {
 }
 
 /// A 2D point with floating-point coordinates.
+#[derive(Debug)]
 pub struct Point {
     /// The x-coordinate
     pub x: f64,
@@ -60,6 +61,7 @@ impl Point {
 }
 
 /// Cardinal and intercardinal directions.
+#[derive(Debug, PartialEq)]
 pub enum Direction {
     North,
     South,
@@ -99,6 +101,7 @@ impl<T> Wrapper<T> {
 }
 
 /// A result type for fallible operations.
+#[derive(Debug, PartialEq)]
 pub enum MathError {
     DivisionByZero,
     Overflow,

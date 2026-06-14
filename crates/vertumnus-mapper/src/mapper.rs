@@ -129,6 +129,9 @@ fn map_function(func: &FunctionItem) -> AnnotatedItem {
             location: func.name.clone(),
         });
         PyO3Strategy::PyFunction
+    } else if output_mapping.pyo3_strategy == PyO3Strategy::MapErr {
+        // Propagate MapErr from return type to function strategy
+        PyO3Strategy::MapErr
     } else {
         PyO3Strategy::PyFunction
     };
@@ -205,11 +208,9 @@ fn map_struct(s: &StructItem) -> AnnotatedItem {
     }
 
     // Determine strategy
-    let strategy = if s.has_lifetimes {
+    let strategy = if s.has_lifetimes || s.has_generics {
+        // Structs with lifetimes or generic parameters cannot be accurately represented
         PyO3Strategy::ManualStub
-    } else if s.has_generics {
-        // Can still generate a pyclass but non-generic
-        PyO3Strategy::PyClass
     } else {
         PyO3Strategy::PyClass
     };

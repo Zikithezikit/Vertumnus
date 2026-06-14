@@ -3,7 +3,7 @@
 > Last updated: 2026-06-14
 > Current branch: `main` (pushed to origin)
 > Last commit: `d5a8ac8` — M1: Inspector + IR — initial project scaffold
-> M2 completes the Type Mapper phase.
+> M2 (Type Mapper) and M3 (Binding Generator) are complete.
 
 ## Milestone Completion Status
 
@@ -101,6 +101,71 @@ crates/vertumnus-cli/src/
 schemas/
   annotated_ir.schema.json  # Annotated IR schema (NEW)
 ```
+
+
+### M3 (Binding Generator) ✅ COMPLETE
+
+```
+Branch: main (not yet committed)
+```
+
+**What was built:**
+- `crates/vertumnus-generator/` — new workspace member
+- `generator.rs` — `Generator` struct orchestrating code generation
+  - `generate_rust_code()` — produces complete `src/lib.rs` with module-level item definitions + `#[pymodule]` registration
+  - `collect_methods_by_type()` — groups `impl` block methods by their parent type
+  - `get_crate_doc()` — extracts crate-level doc from first item
+  - Skips registering `ManualStub` items (lifetime/generic warnings)
+- `codegen.rs` — Rust/PyO3 code generation for each item kind:
+  - `generate_function_wrapper()` — `#[pyfunction]` with `PyResult` for fallible, `Option<T>` for nullable, `Ok(...)` wrapper for infallible
+  - `generate_struct_wrapper()` — `#[pyclass]` with `inner: _crate::Name` delegation, field getters, method generation. Skips generic parameter fields with `// VERTUMNUS:` comment.
+  - `generate_enum_wrapper()` — C-like enums as `#[pyclass] #[derive(Clone)]`, method dispatch via `_crate::Enum::method(self)`. Data-carrying variants get `ManualStub`.
+  - `generate_method_wrapper()` — handles `self`/`&self`/`&mut self` receivers, delegates to original impl
+  - `generate_trait_stub()` — informational `todo!()` stub
+  - `ir_type_to_pyo3_type()` — maps type strings to PyO3 return types (`PyResult<T>` for `Result`, `Option<T>` for `Option`, `Bound<'_, PyAny>` for generics)
+  - `is_generic_field()` — detects bare generic param field types
+- `stubs.rs` — Python `.pyi` and `__init__.py` generation:
+  - `generate_pyi()` — full type stub file with `class`, `def`, `IntEnum` for enums
+  - `generate_init_py()` — re-exports from native module
+  - `ir_type_to_python_type()` — maps to Python type annotation syntax
+  - `partition_map_by_kind()` — separates functions, structs, enums, traits for ordered stub output
+  - `is_exportable()` — filters `ManualStub` from `__init__.py` exports (except top-level free functions)
+- `lib.rs` — public exports: `Generator`, `GeneratorConfig`, `generate()` convenience fn
+- CLI integration: `generate` and `wrap` subcommands invoke generator, write `src/lib.rs`, `<pkg>.pyi`, `python/<pkg>/__init__.py`
+- Fixes applied during e2e testing:
+  - `MapErr` strategy propagated from return type to function level (mapper fix)
+  - Doc comment formatting (space after `///`)
+  - Enum method dispatch (`_crate::Enum::method(self)` not `self.inner.method(...)`)
+  - `#[pyfunction]`/`#[pyclass]` definitions at **module level**, not inside `#[pymodule]` fn body
+  - `ManualStub` items excluded from `m.add_class::<...>()` registration
+  - Generic field getters skipped with `// VERTUMNUS:` comment
+- 28 unit tests (all passing), e2e test with `simple-math` fixture produces valid output
+
+**Key files:**
+```
+crates/vertumnus-generator/src/
+  generator.rs        # Main Generator struct, orchestration (NEW)
+  codegen.rs          # Rust/PyO3 code generation ~1193 lines (NEW)
+  stubs.rs            # Python .pyi + __init__.py generation (NEW)
+  lib.rs              # Public API exports (NEW)
+crates/vertumnus-cli/src/
+  main.rs             # Updated: generate + wrap commands call generator
+```
+
+**Type coverage in generated code:**
+| Rust → PyO3 | Status |
+|---|---|
+| Free functions → `#[pyfunction]` | ✅ |
+| Infallible → `Ok(val)` | ✅ |
+| `Result<T,E>` → `PyResult<T>` + `.map_err(PyRuntimeError)` | ✅ |
+| `Option<T>` → `Option<T>` return | ✅ |
+| Struct `Foo` → `#[pyclass]` + `inner: _crate::Foo` + getters | ✅ |
+| Struct methods → `#[pymethods]` impl | ✅ |
+| C-like enum → `#[pyclass] #[derive(Clone)]` | ✅ |
+| Enum methods → `_crate::Enum::method(self)` | ✅ |
+| Data-carrying enum → ManualStub with warning | ✅ |
+| Lifetime/Generic struct → ManualStub | ✅ |
+| Trait → `todo!()` stub | ✅ |
 
 ---
 
