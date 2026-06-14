@@ -13,22 +13,11 @@ You get a fully typed Python package backed by native Rust code.
 
 ## Install
 
-### From source
-
-```bash
-git clone https://github.com/Zikithezikit/Vertumnus.git
-cd Vertumnus
-cargo build --release
-# Binary at target/release/vertumnus — add to your PATH
-```
-
-### From Cargo
-
 ```bash
 cargo install vertumnus-cli --git https://github.com/Zikithezikit/Vertumnus.git
 ```
 
-> Nightly Rust is required for inspecting crates (uses `rustdoc JSON`).
+> Nightly Rust required (uses `rustdoc JSON` for crate inspection).
 
 ---
 
