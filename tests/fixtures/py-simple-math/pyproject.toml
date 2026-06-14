@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "py_simple_math"
+version = "0.1.0"
+description = "Python bindings for `simple-math` v0.1.0"
+requires-python = ">=3.8"
+
+[project.urls]
+Source = "https://github.com/Zikithezikit/Vertumnus"
+
+[tool.maturin]
+python-source = "python"
+module-name = "py_simple_math._core"

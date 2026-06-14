@@ -209,6 +209,9 @@ name = "{package_name}"
 version = "{crate_version}"
 edition = "2021"
 
+# Explicitly declare this is not part of any parent workspace
+[workspace]
+
 [lib]
 name = "_core"
 crate-type = ["cdylib"]

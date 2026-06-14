@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "py_data_structures"
+version = "0.3.0"
+description = "Python bindings for `data-structures` v0.3.0"
+requires-python = ">=3.8"
+
+[project.urls]
+Source = "https://github.com/Zikithezikit/Vertumnus"
+
+[tool.maturin]
+python-source = "python"
+module-name = "py_data_structures._core"

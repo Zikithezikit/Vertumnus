@@ -1,0 +1,12 @@
+[package]
+name = "py_data_structures"
+version = "0.3.0"
+edition = "2021"
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+data-structures = { path = "/home/server-yoav/Projects/Vertumnus/tests/fixtures/data-structures" }
