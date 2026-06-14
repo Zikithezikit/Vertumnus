@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "vertumnus"
+path = "src/main.rs"
+
 [dependencies]
 vertumnus-inspector = { path = "../vertumnus-inspector" }
 vertumnus-mapper = { path = "../vertumnus-mapper" }
@@ -11,4 +15,7 @@ vertumnus-generator = { path = "../vertumnus-generator" }
 vertumnus-builder = { path = "../vertumnus-builder" }
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
+serde_json = "1"
+
+[dev-dependencies]
 serde_json = "1"

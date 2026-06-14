@@ -617,6 +617,76 @@ fn convert_struct(
     })
 }
 
+/// Resolve enum variant fields from rustdoc JSON.
+///
+/// Handles three variant kinds:
+/// - `"plain"` — no fields
+/// - `{"struct": {"fields": [field_ids]}}` — struct variant (named fields)
+/// - `{"tuple": [field_ids]}` — tuple variant (unnamed fields)
+fn resolve_enum_variant_fields(
+    kind_val: Option<&Value>,
+    index: &HashMap<String, RustdocItem>,
+) -> Vec<StructField> {
+    let kind_val = match kind_val {
+        Some(v) => v,
+        None => return Vec::new(),
+    };
+
+    // Plain variant — no fields
+    if let Some(s) = kind_val.as_str() {
+        if s == "plain" {
+            return Vec::new();
+        }
+    }
+
+    // Struct variant: kind is {"struct": {"fields": [field_ids]}}
+    if let Some(struct_obj) = kind_val.get("struct") {
+        if let Some(fields_arr) = struct_obj.get("fields").and_then(|v| v.as_array()) {
+            return fields_arr
+                .iter()
+                .filter_map(|f_id| {
+                    let fid = f_id.as_u64()?.to_string();
+                    let field_item = index.get(&fid)?;
+                    let field_inner = field_item.inner.get("struct_field")?;
+                    let fname = field_item.name.as_deref().unwrap_or("unnamed");
+                    Some(StructField {
+                        name: fname.to_string(),
+                        type_str: resolve_type(field_inner),
+                        visibility: FieldVisibility::Public,
+                    })
+                })
+                .collect();
+        }
+    }
+
+    // Tuple variant: kind is {"tuple": [field_ids]}
+    if let Some(tuple_arr) = kind_val.get("tuple").and_then(|v| v.as_array()) {
+        return tuple_arr
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f_id)| {
+                let fid = f_id.as_u64()?.to_string();
+                let field_item = index.get(&fid)?;
+                let field_inner = field_item.inner.get("struct_field")?;
+                let fname = field_item.name.as_deref().unwrap_or("");
+                // For tuple variants, the name is positional ("0", "1", etc.)
+                let name = if fname == i.to_string() || fname.is_empty() {
+                    format!("_{}", i)
+                } else {
+                    fname.to_string()
+                };
+                Some(StructField {
+                    name,
+                    type_str: resolve_type(field_inner),
+                    visibility: FieldVisibility::Public,
+                })
+            })
+            .collect();
+    }
+
+    Vec::new()
+}
+
 fn convert_enum(
     item: &RustdocItem,
     e: &RustdocEnumInfo,
@@ -632,30 +702,13 @@ fn convert_enum(
             let variant_inner = variant_item.inner.get("variant")?;
             let vname = variant_item.name.as_deref()?;
 
-            // Check variant kind for fields
-            let kind = variant_inner.get("kind").and_then(|v| v.as_str());
-            let fields = if kind == Some("struct") || kind == Some("tuple") {
-                // Struct-like variants have fields stored in the variant item
-                let fields_val = variant_inner.get("fields");
-                if let Some(fields_arr) = fields_val.and_then(|v| v.as_array()) {
-                    fields_arr
-                        .iter()
-                        .filter_map(|f| {
-                            let fname = f.get("name")?.as_str()?;
-                            let ftype = f.get("type")?;
-                            Some(StructField {
-                                name: fname.to_string(),
-                                type_str: resolve_type(ftype),
-                                visibility: FieldVisibility::Public,
-                            })
-                        })
-                        .collect()
-                } else {
-                    Vec::new()
-                }
-            } else {
-                Vec::new()
-            };
+            // Resolve variant fields from rustdoc JSON.
+            // Variant kinds:
+            //   - "plain" → no fields
+            //   - {"struct": {"fields": [field_ids]}} → struct variant (named fields)
+            //   - {"tuple": [field_ids]} → tuple variant (unnamed fields)
+            let kind_val = variant_inner.get("kind");
+            let fields: Vec<StructField> = resolve_enum_variant_fields(kind_val, index);
 
             Some(EnumVariant {
                 name: vname.to_string(),
@@ -732,7 +785,7 @@ fn convert_impl(
 ) -> Option<ImplItem> {
     let type_name = resolve_type(&imp.for_type);
 
-    let trait_name = imp.trait_type.as_ref().map(|t| resolve_type(t));
+    let trait_name = imp.trait_type.as_ref().map(resolve_type);
 
     let methods: Vec<FunctionItem> = imp
         .method_ids
@@ -850,7 +903,7 @@ fn resolve_type(type_val: &Value) -> String {
                     });
 
                     let args_str = args
-                        .map(|a| resolve_angle_bracketed_args(a))
+                        .map(resolve_angle_bracketed_args)
                         .unwrap_or_default();
 
                     if args_str.is_empty() {
@@ -870,7 +923,7 @@ fn resolve_type(type_val: &Value) -> String {
                         .get("is_mutable")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    let inner_type = inner.get("type").map(|t| resolve_type(t));
+                    let inner_type = inner.get("type").map(resolve_type);
 
                     let mut_prefix = if is_mut { "mut " } else { "" };
                     let inner_str = inner_type.as_deref().unwrap_or("unknown");
@@ -884,7 +937,7 @@ fn resolve_type(type_val: &Value) -> String {
                 "tuple" => {
                     let elements: Vec<String> = inner
                         .as_array()
-                        .map(|arr| arr.iter().map(|e| resolve_type(e)).collect())
+                        .map(|arr| arr.iter().map(resolve_type).collect())
                         .unwrap_or_default();
                     if elements.is_empty() {
                         "()".to_string()
@@ -896,7 +949,7 @@ fn resolve_type(type_val: &Value) -> String {
                 "slice" => {
                     let inner_type = inner
                         .get("inner")
-                        .map(|t| resolve_type(t))
+                        .map(resolve_type)
                         .unwrap_or_else(|| "unknown".to_string());
                     format!("[{}]", inner_type)
                 }
@@ -904,7 +957,7 @@ fn resolve_type(type_val: &Value) -> String {
                 "array" => {
                     let inner_type = inner
                         .get("inner")
-                        .map(|t| resolve_type(t))
+                        .map(resolve_type)
                         .unwrap_or_else(|| "unknown".to_string());
                     let len = inner
                         .get("len")
@@ -935,7 +988,7 @@ fn resolve_type(type_val: &Value) -> String {
                         .unwrap_or_default();
                     let output = decl
                         .and_then(|d| d.get("output"))
-                        .map(|o| resolve_type(o))
+                        .map(resolve_type)
                         .filter(|s| s != "()");
                     match output {
                         Some(ret) => format!("fn({}) -> {}", inputs_str, ret),
@@ -949,7 +1002,7 @@ fn resolve_type(type_val: &Value) -> String {
                         .and_then(|v| v.as_array())
                         .map(|arr| {
                             arr.iter()
-                                .map(|b| resolve_type(b))
+                                .map(resolve_type)
                                 .collect::<Vec<_>>()
                                 .join(" + ")
                         })
@@ -963,7 +1016,7 @@ fn resolve_type(type_val: &Value) -> String {
                         .and_then(|v| v.as_array())
                         .map(|arr| {
                             arr.iter()
-                                .map(|b| resolve_type(b))
+                                .map(resolve_type)
                                 .collect::<Vec<_>>()
                                 .join(" + ")
                         })
@@ -974,7 +1027,7 @@ fn resolve_type(type_val: &Value) -> String {
                 "raw_pointer" => {
                     let inner_type = inner
                         .get("type")
-                        .map(|t| resolve_type(t))
+                        .map(resolve_type)
                         .unwrap_or_else(|| "unknown".to_string());
                     let is_mut = inner
                         .get("is_mutable")
@@ -990,7 +1043,7 @@ fn resolve_type(type_val: &Value) -> String {
                     let path = inner.get("path").and_then(|v| v.as_str()).unwrap_or("unknown");
                     let args = inner.get("args");
                     let args_str = args
-                        .map(|a| resolve_angle_bracketed_args(a))
+                        .map(resolve_angle_bracketed_args)
                         .unwrap_or_default();
                     if args_str.is_empty() {
                         path.to_string()

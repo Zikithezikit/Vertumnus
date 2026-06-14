@@ -9,7 +9,7 @@
 //! vertumnus generate <annotated.json> # Phase 3 only
 //! ```
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
@@ -105,7 +105,7 @@ enum Commands {
 }
 
 fn write_generated_files(
-    output_dir: &PathBuf,
+    output_dir: &Path,
     package_name: &str,
     files: &vertumnus_generator::GeneratedFiles,
     verbose: bool,
@@ -244,40 +244,40 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("📄 Wrote bindings to: {}", out_path.display());
             }
 
-            // Phase 4: Scaffold build configuration and optionally build
+            // Phase 4: Scaffold build configuration
+            if verbose {
+                eprintln!("🏗️  Scaffolding build configuration...");
+            }
+
+            let canonical_path = path.canonicalize().map_err(|e| {
+                anyhow::anyhow!("Cannot resolve crate path: {e}")
+            })?;
+
+            // Read the actual crate name from Cargo.toml (preserves hyphens)
+            let original_crate_name =
+                vertumnus_builder::read_crate_name(&canonical_path)
+                    .unwrap_or_else(|_| ir.crate_name.clone());
+
+            let builder_config = vertumnus_builder::BuilderConfig {
+                output_dir: out_path.clone(),
+                crate_path: canonical_path,
+                package_name: package_name_safe.clone(),
+                crate_name: original_crate_name,
+                crate_version: ir.crate_version.clone(),
+            };
+
+            // Always scaffold pyproject.toml and Cargo.toml
+            let written = vertumnus_builder::scaffold_all(&builder_config)
+                .map_err(|e| anyhow::anyhow!("Build scaffolding failed: {e}"))?;
+
+            if verbose {
+                for w in &written {
+                    eprintln!("   📄 Created: {}", w.display());
+                }
+            }
+
+            // Optionally run maturin build
             if !no_build {
-                if verbose {
-                    eprintln!("🏗️  Scaffolding build configuration...");
-                }
-
-                let canonical_path = path.canonicalize().map_err(|e| {
-                    anyhow::anyhow!("Cannot resolve crate path: {e}")
-                })?;
-
-                // Read the actual crate name from Cargo.toml (preserves hyphens)
-                let original_crate_name =
-                    vertumnus_builder::read_crate_name(&canonical_path)
-                        .unwrap_or_else(|_| ir.crate_name.clone());
-
-                let builder_config = vertumnus_builder::BuilderConfig {
-                    output_dir: out_path.clone(),
-                    crate_path: canonical_path,
-                    package_name: package_name_safe.clone(),
-                    crate_name: original_crate_name,
-                    crate_version: ir.crate_version.clone(),
-                };
-
-                // Write pyproject.toml and Cargo.toml
-                let written = vertumnus_builder::scaffold_all(&builder_config)
-                    .map_err(|e| anyhow::anyhow!("Build scaffolding failed: {e}"))?;
-
-                if verbose {
-                    for w in &written {
-                        eprintln!("   📄 Created: {}", w.display());
-                    }
-                }
-
-                // Invoke maturin build
                 if verbose {
                     eprintln!("🔨 Running maturin build (release mode)...");
                 }
@@ -295,7 +295,7 @@ fn main() -> anyhow::Result<()> {
                 }
             } else {
                 if verbose {
-                    eprintln!("ℹ️  Skipping build (--no-build).");
+                    eprintln!("ℹ️  Skipping maturin build (--no-build).");
                     eprintln!("   Run `maturin build --release` in '{}' to build.", out_path.display());
                 }
             }

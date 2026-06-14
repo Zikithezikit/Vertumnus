@@ -297,6 +297,15 @@ fn map_enum(e: &EnumItem) -> AnnotatedItem {
     // Determine strategy
     let strategy = if e.has_lifetimes {
         PyO3Strategy::ManualStub
+    } else if !is_c_like {
+        warnings.push(MappingWarning {
+            message: format!(
+                "Enum '{}' has data-carrying variants — requires manual binding.",
+                e.name
+            ),
+            location: e.name.clone(),
+        });
+        PyO3Strategy::ManualStub
     } else {
         PyO3Strategy::PyEnum
     };

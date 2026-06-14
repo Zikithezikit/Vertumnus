@@ -1,0 +1,9 @@
+[package]
+name = "data-structures"
+version = "0.3.0"
+edition = "2021"
+
+# Explicitly declare this is not part of the Vertumnus workspace
+[workspace]
+
+[dependencies]

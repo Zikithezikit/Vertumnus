@@ -2,8 +2,9 @@
 
 > Last updated: 2026-06-14
 > Current branch: `main` (not yet pushed)
-> M1 (Inspector+IR) ✅ M2 (Type Mapper) ✅ M3 (Binding Generator) ✅ M4 (Builder+CLI) ✅
-> All 93 tests passing. Two fixture crates produce installable wheels.
+> M1 (Inspector+IR) ✅ M2 (Type Mapper) ✅ M3 (Binding Generator) ✅ M4 (Builder+CLI) ✅ **M5 (Polish) ✅**
+> All 116 tests passing (113 unit + 3 doc-test). Three fixture crates produce installable wheels.
+> Clean clippy — zero warnings.
 
 ## Milestone Completion Status
 
@@ -218,9 +219,77 @@ crates/vertumnus-generator/src/
 tests/fixtures/string-utils/   # Second test fixture (NEW)
 ```
 
----
+### M5 (Polish) ✅ COMPLETE
 
-## Code Conventions
+```
+Branch: main (not yet committed)
+```
+
+**What was built:**
+
+**CI Workflow Template Generation:**
+- `.github/workflows/ci.yml` — GitHub Actions CI for Vertumnus itself (test on linux/macos/windows, stable/nightly, clippy, fmt, e2e)
+- `generate_ci_workflow()` — builder function to scaffold `build.yml` for wrapped packages (matrix build linux/macos/windows, Python 3.8–3.12, PyPI publish on tags)
+- `scaffold_ci()` — writes CI workflow to `.github/workflows/build.yml` in output directory
+- 2 new tests for CI generation (10 builder tests total)
+
+**Documentation (`docs/`):**
+- `docs/architecture.md` — Full architecture overview with pipeline flow diagram, component descriptions, data flow, workspace layout, tech stack
+- `docs/type-mapping.md` — Complete type mapping table with PyO3 strategy descriptions, edge cases, warning catalog, and unsupported patterns
+- `docs/limitations.md` — Documented limitations for 10 categories (lifetimes, async, dyn Trait, generics, data enums, unsafe, circular refs, modules, associated items) with workarounds
+
+**Third Fixture Crate (`data-structures`):**
+- Exercises collection types: `Vec<T>`, `HashMap<K,V>`, `HashSet<T>`
+- Exercises tuples: `(i64, i64)`, `(String, i64)` pairs, unzip
+- Exercises nested generics: `Option<(i64, i64)>`, `Vec<Option<i64>>`
+- Exercises `Result<T, E>` with data-carrying error enum (`ValidationError`)
+- Contains structs with `Vec` / `HashMap` fields (DataStore, Counter)
+- Contains C-like enum (Color) and mixed enum (OpStatus with data variant)
+- Automatically compiles and is verified in integration tests
+
+**Integration Test Suite (15 tests):**
+- `crates/vertumnus-cli/tests/integration_tests.rs` — Rust integration tests running `vertumnus` binary via `Command`
+- Tests for `inspect` on all 3 fixtures (validates IR JSON structure, item names)
+- Tests for `map` on fixture IR (validates annotated IR with mapping info)
+- Tests for `generate` (validates output files exist: lib.rs, .pyi, __init__.py)
+- Tests for `wrap --dry-run` (validates annotated IR output, no files created)
+- Tests for `wrap --no-build` (validates all generated + scaffolded files exist)
+- Tests for `wrap --verbose` (validates verbose stderr output)
+- Tests for `wrap` full pipeline with maturin (validates .whl produced)
+- Edge case tests: nonexistent crate path, invalid JSON input
+- All 15 integration tests pass
+
+**CLI fixes:**
+- `--no-build` now scaffolds build config (pyproject.toml, Cargo.toml) but skips `maturin build`
+- Binary renamed from `vertumnus-cli` to `vertumnus` (via `[[bin]]` in Cargo.toml)
+
+**Code quality:**
+- Zero clippy warnings across workspace
+- 113 unit tests + 3 doc-tests = 116 total, all passing
+- Clean `cargo check` with no warnings
+
+**Total test count:**
+- `vertumnus-builder`: 10 unit + 1 doc = 11
+- `vertumnus-cli`: 15 integration
+- `vertumnus-generator`: 28 unit + 1 doc = 29
+- `vertumnus-inspector`: 12 unit + 1 doc = 13
+- `vertumnus-mapper`: 47 unit + 1 doc = 48
+- **Grand total: 116 tests** (all passing)
+
+**Key files (new/updated):**
+```
+.github/workflows/ci.yml                              # Vertumnus CI (NEW)
+crates/vertumnus-builder/src/lib.rs                   # CI workflow generation (UPDATED)
+crates/vertumnus-cli/src/main.rs                      # --no-build fix, binary name (UPDATED)
+crates/vertumnus-cli/Cargo.toml                       # [[bin]] name, dev-deps (UPDATED)
+crates/vertumnus-cli/tests/integration_tests.rs       # 15 integration tests (NEW)
+tests/fixtures/data-structures/                       # Third test fixture (NEW)
+docs/architecture.md                                  # Architecture docs (NEW)
+docs/type-mapping.md                                  # Type mapping reference (NEW)
+docs/limitations.md                                   # Known limitations (NEW)
+```
+
+---
 
 These conventions apply across all Vertumnus crates.
 

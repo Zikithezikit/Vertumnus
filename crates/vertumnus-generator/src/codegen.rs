@@ -220,7 +220,7 @@ fn generate_function_body(
 
 /// Extract the base type name from a type string, stripping references, lifetimes, etc.
 /// Returns the inner type name and the reference prefix substring from the original input.
-fn extract_ref_prefix<'a>(type_str: &'a str) -> (&'a str, &'a str) {
+fn extract_ref_prefix(type_str: &str) -> (&str, &str) {
     let s = type_str.trim();
 
     // &mut T
@@ -393,13 +393,37 @@ pub fn generate_struct_wrapper(
         .filter(|f| f.visibility == FieldVisibility::Public)
         .collect();
 
+    // Collect method names to avoid duplicate getter names.
+    // PyO3's #[getter] generates internal slot named `get_{field_name}` which
+    // conflicts with a method named `get_{field_name}`. We need to check both
+    // the field name and the `get_` prefixed variant.
+    let method_names: std::collections::HashSet<&str> =
+        methods.iter().map(|(m, _)| m.name.as_str()).collect();
+
     if !public_fields.is_empty() || !methods.is_empty() {
         code.push_str("#[pymethods]\n");
         code.push_str(&format!("impl {} {{\n", s.name));
     }
 
-    // Generate field getters (skip generic/unsupported fields)
+    // Generate field getters (skip fields that conflict with methods, or have generic types)
     for field in &public_fields {
+        if method_names.contains(field.name.as_str()) {
+            code.push_str("    // VERTUMNUS: Field '");
+            code.push_str(&field.name);
+            code.push_str("' conflicts with a method of the same name. Manual getter required.\n");
+            continue;
+        }
+        // PyO3's #[getter(x)] generates internal slot `__pymethod_get_x__`, which
+        // conflicts with a method literally named `get_x`.
+        let getter_slot_name = format!("get_{}", field.name);
+        if method_names.contains(getter_slot_name.as_str()) {
+            code.push_str("    // VERTUMNUS: Field '");
+            code.push_str(&field.name);
+            code.push_str("' would conflict with PyO3's internal getter slot '");
+            code.push_str(&getter_slot_name);
+            code.push_str("'. Manual getter required.\n");
+            continue;
+        }
         if is_generic_field(&field.type_str) {
             code.push_str("    // VERTUMNUS: Field '");
             code.push_str(&field.name);
@@ -409,7 +433,7 @@ pub fn generate_struct_wrapper(
         code.push_str("    /// Getter for `");
         code.push_str(&field.name);
         code.push_str("`\n");
-        code.push_str("    #[getter]\n");
+        code.push_str(&format!("    #[getter({})]\n", field.name));
         let py_return = ir_type_to_pyo3_type(&field.type_str);
         code.push_str(&format!(
             "    fn {}(&self) -> {} {{\n",
@@ -847,10 +871,39 @@ fn is_copy_type(type_str: &str) -> bool {
     )
 }
 
-/// Check if a field type string is a bare generic parameter (single uppercase letter like `T`, `U`)
-/// or contains generic type variables.
+/// Check if a field type string is a bare generic parameter (e.g. `T`, `U`, `TKey`).
+///
+/// Types like `Vec<i64>`, `HashMap<String, f64>`, or `Option<Vec<u8>>` are concrete
+/// (monomorphized) and are NOT considered generic parameters — they should be handled
+/// by the normal type mapping.
 fn is_generic_field(type_str: &str) -> bool {
     let trimmed = type_str.trim();
+
+    // Known concrete container base names (without std path prefix)
+    let known_container_bases = [
+        "Vec", "Option", "Result", "HashMap", "HashSet",
+        "Box", "Arc", "Rc", "Cow",
+        "BTreeMap", "BTreeSet", "LinkedList", "VecDeque",
+    ];
+
+    // Extract the base type name (last segment after :: or first word before <)
+    let base = if let Some(double_colon) = trimmed.rfind("::") {
+        &trimmed[double_colon + 2..]
+    } else {
+        trimmed
+    };
+    let base_name = if let Some(angle) = base.find('<') {
+        &base[..angle]
+    } else {
+        base
+    };
+
+    // If it's a known container type with type parameters, it's NOT generic
+    // — the type parameters are concrete (e.g., HashMap<String, f64>)
+    if known_container_bases.contains(&base_name) && trimmed.contains('<') {
+        return false;
+    }
+
     // Bare uppercase single-letter identifiers are generic params
     if trimmed.len() == 1 {
         let c = trimmed.chars().next().unwrap();
@@ -860,13 +913,13 @@ fn is_generic_field(type_str: &str) -> bool {
     if trimmed.len() <= 6 && trimmed.chars().all(|c| c.is_ascii_uppercase()) {
         return true;
     }
-    // Contains generic angle brackets — treat as generic
+
+    // Contains angle brackets but not a known container — treat as generic
     if trimmed.contains('<') {
         return true;
     }
     false
 }
-
 fn ir_type_to_pyo3_type(type_str: &str) -> String {
     let s = type_str.trim();
 
@@ -1271,8 +1324,9 @@ mod tests {
         assert!(code.contains("#[pyclass]"));
         assert!(code.contains("pub struct Point {"));
         assert!(code.contains("inner: _crate::Point,"));
-        assert!(code.contains("#[getter]"));
+        assert!(code.contains("#[getter(x)]"));
         assert!(code.contains("fn x("));
+        assert!(code.contains("#[getter(y)]"));
         assert!(code.contains("fn y("));
     }
 

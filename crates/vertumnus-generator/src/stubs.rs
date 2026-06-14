@@ -125,21 +125,18 @@ pub fn generate_init_py(
     let mut names = Vec::new();
     for item in &annotated.items {
         match &item.original {
-            IrItem::Function(f) => {
-                if is_exportable(&item.mapping.pyo3_strategy) {
+            IrItem::Function(f)
+                if is_exportable(&item.mapping.pyo3_strategy) => {
                     names.push(f.name.clone());
                 }
-            }
-            IrItem::Struct(s) => {
-                if is_exportable(&item.mapping.pyo3_strategy) {
+            IrItem::Struct(s)
+                if is_exportable(&item.mapping.pyo3_strategy) => {
                     names.push(s.name.clone());
                 }
-            }
-            IrItem::Enum(e) => {
-                if is_exportable(&item.mapping.pyo3_strategy) {
+            IrItem::Enum(e)
+                if is_exportable(&item.mapping.pyo3_strategy) => {
                     names.push(e.name.clone());
                 }
-            }
             _ => {}
         }
     }
@@ -455,10 +452,10 @@ fn ir_type_to_python_type(type_str: &str) -> String {
 
         // Reference types (strip the reference)
         _ if s.starts_with("&mut ") => {
-            ir_type_to_python_type(&s[5..].trim())
+            ir_type_to_python_type(s[5..].trim())
         }
         _ if s.starts_with('&') => {
-            ir_type_to_python_type(&s[1..].trim())
+            ir_type_to_python_type(s[1..].trim())
         }
 
         // Vec<T>
@@ -485,10 +482,7 @@ fn ir_type_to_python_type(type_str: &str) -> String {
             // Split on first comma at top level for type args
             let parts = split_python_type_args(inner);
             if parts.len() >= 2 {
-                format!(
-                    "{}",
-                    ir_type_to_python_type(parts[0].trim())
-                )
+                ir_type_to_python_type(parts[0].trim()).to_string()
             } else {
                 "Any".to_string()
             }
@@ -618,6 +612,7 @@ fn extract_python_result_ok(type_str: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 /// Partition a slice of annotated items by their IR item kind.
+#[allow(clippy::type_complexity)]
 fn partition_map_by_kind<'a>(
     items: &'a [&'a AnnotatedItem],
 ) -> (

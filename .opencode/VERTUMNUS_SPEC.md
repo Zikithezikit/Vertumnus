@@ -317,11 +317,11 @@ The IR is the contract between the Inspector and all downstream phases. It must 
 - [ ] Invoke `maturin build` and produce a `.whl`.
 - [ ] `vertumnus wrap` works end-to-end on at least two fixture crates.
 
-### M5 — Polish
-- [ ] CI workflow template generation.
-- [ ] `--dry-run` and `--verbose` modes.
-- [ ] Docs: architecture, type-mapping reference, limitations.
-- [ ] Integration test suite with 3+ real-world crates.
+### M5 — Polish ✅ COMPLETE
+- [x] CI workflow template generation.
+- [x] `--dry-run` and `--verbose` modes.
+- [x] Docs: architecture, type-mapping reference, limitations.
+- [x] Integration test suite with 3+ real-world crates.
 
 ---
 
