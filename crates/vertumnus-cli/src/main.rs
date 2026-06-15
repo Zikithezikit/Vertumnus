@@ -17,6 +17,37 @@ use vertumnus_mapper::config::VertumnusConfig;
 mod cache;
 mod registry;
 
+/// Options for wrapping a single crate (used by both `Wrap` and `Batch::Wrap`).
+#[derive(Debug, Clone)]
+struct WrapOptions {
+    path: PathBuf,
+    config_path: Option<PathBuf>,
+    out: Option<PathBuf>,
+    package_name: Option<String>,
+    dry_run: bool,
+    no_build: bool,
+    verbose: bool,
+    overwrite: bool,
+}
+
+/// Result of wrapping a single crate in a batch operation.
+#[derive(Debug, Default)]
+struct BatchCrateResult {
+    crate_name: String,
+    status: BatchStatus,
+    output_dir: Option<PathBuf>,
+    error: Option<String>,
+    warning_count: usize,
+}
+
+#[derive(Debug, Default)]
+enum BatchStatus {
+    Success,
+    #[default]
+    Skipped,
+    Failed,
+}
+
 /// Transform any Rust crate into a Python package — with minimal manual binding work.
 #[derive(Parser, Debug)]
 #[command(name = "vertumnus", version, about)]
@@ -93,6 +124,16 @@ enum Commands {
         verbose: bool,
     },
 
+    /// Batch operations on multiple crates
+    Batch {
+        #[command(subcommand)]
+        action: BatchAction,
+
+        /// Print detailed information about batch operations
+        #[arg(long, short, global = true)]
+        verbose: bool,
+    },
+
     /// Community type mapping registry — fetch, list, apply mappings
     Registry {
         #[command(subcommand)]
@@ -123,6 +164,36 @@ enum Commands {
         /// Overwrite existing output files
         #[arg(long)]
         overwrite: bool,
+    },
+}
+
+/// Actions for the `vertumnus batch` subcommand.
+#[derive(Subcommand, Debug)]
+enum BatchAction {
+    /// Wrap multiple Rust crates into Python packages
+    Wrap {
+        /// Paths to the Rust crate(s) to wrap. Can be directories or glob patterns.
+        paths: Vec<PathBuf>,
+
+        /// Path to a .vertumnus/config.toml file (shared across all crates)
+        #[arg(long)]
+        config: Option<PathBuf>,
+
+        /// Output directory root — each crate gets a subdirectory here (default: parent of each crate)
+        #[arg(long)]
+        out_dir: Option<PathBuf>,
+
+        /// Generate files but do not invoke maturin
+        #[arg(long)]
+        no_build: bool,
+
+        /// Overwrite existing output files
+        #[arg(long)]
+        overwrite: bool,
+
+        /// Continue wrapping remaining crates even if one fails
+        #[arg(long)]
+        keep_going: bool,
     },
 }
 
@@ -271,6 +342,246 @@ fn write_generated_files(
     Ok(())
 }
 
+/// Run the full wrap pipeline for a single crate and return a result.
+fn run_wrap(opts: &WrapOptions) -> Result<BatchCrateResult, anyhow::Error> {
+    let mut result = BatchCrateResult::default();
+
+    let WrapOptions {
+        path,
+        config_path,
+        out,
+        package_name,
+        dry_run,
+        no_build,
+        verbose,
+        overwrite,
+    } = opts.clone();
+
+    // Resolve canonical path for caching
+    let canonical_path = path
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("Cannot resolve crate path '{}': {e}", path.display()))?;
+
+    // Initialize cache (best-effort — don't fail if cache dir is unwritable)
+    let cache = cache::Cache::new(&canonical_path).ok();
+
+    // Phase 1: Inspect (or load from cache)
+    let ir = if let Some(ref cache) = cache {
+        if let Some(cached_ir) = cache.load_ir() {
+            if verbose {
+                eprintln!("🔍 Using cached IR (source unchanged)");
+            }
+            cached_ir
+        } else {
+            if verbose {
+                eprintln!("🔍 Inspecting crate at: {}", path.display());
+            }
+            let ir = vertumnus_inspector::inspect_crate(&path)?;
+            if let Err(e) = cache.save_ir(&ir) {
+                if verbose {
+                    eprintln!("  ℹ️  Cache write skipped: {e}");
+                }
+            }
+            ir
+        }
+    } else {
+        if verbose {
+            eprintln!("🔍 Inspecting crate at: {}", path.display());
+        }
+        vertumnus_inspector::inspect_crate(&path)?
+    };
+    result.crate_name = ir.crate_name.clone();
+
+    // Phase 2: Type mapping (or load from cache)
+    let annotated = if let Some(ref cache) = cache {
+        if let Some(cached_annotated) = cache.load_annotated_ir() {
+            if verbose {
+                eprintln!("🗺️  Using cached mapping (source unchanged)");
+            }
+            cached_annotated
+        } else {
+            if verbose {
+                eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
+            }
+            let config = load_config(config_path.as_deref(), &path)?;
+            let annotated = vertumnus_mapper::map_ir_with_full_context(
+                &ir,
+                config.as_ref(),
+                Some(&canonical_path),
+            )?;
+            if let Err(e) = cache.save_annotated_ir(&annotated) {
+                if verbose {
+                    eprintln!("  ℹ️  Cache write skipped: {e}");
+                }
+            }
+            annotated
+        }
+    } else {
+        if verbose {
+            eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
+        }
+        let config = load_config(config_path.as_deref(), &path)?;
+        vertumnus_mapper::map_ir_with_full_context(
+            &ir,
+            config.as_ref(),
+            Some(&canonical_path),
+        )?
+    };
+
+    if dry_run {
+        // Dry-run: output annotated IR and exit
+        println!("{}", annotated.to_json_pretty()?);
+        result.status = BatchStatus::Success;
+        return Ok(result);
+    }
+
+    if verbose {
+        let total_warnings: usize = annotated
+            .items
+            .iter()
+            .map(|i| i.mapping.warnings.len())
+            .sum();
+        eprintln!("✅ Type mapping complete. {} warnings.", total_warnings);
+        for item in &annotated.items {
+            for w in &item.mapping.warnings {
+                eprintln!("  ⚠️  [{}] {}", w.location, w.message);
+            }
+        }
+        result.warning_count = total_warnings;
+    }
+
+    // Check if any functions are async (needed for builder config)
+    let has_async = annotated.items.iter().any(|item| match &item.original {
+        vertumnus_inspector::ir::IrItem::Function(f) => f.is_async,
+        vertumnus_inspector::ir::IrItem::Struct(s) => s.methods.iter().any(|m| m.is_async),
+        vertumnus_inspector::ir::IrItem::Enum(e) => e.methods.iter().any(|m| m.is_async),
+        _ => false,
+    });
+
+    // Phase 3: Generate bindings
+    let package_name = package_name.unwrap_or_else(|| format!("py-{}", ir.crate_name));
+    let package_name_safe = package_name.replace('-', "_");
+
+    if verbose {
+        eprintln!(
+            "🔧 Generating Python bindings for '{}'...",
+            package_name_safe
+        );
+    }
+
+    let gen_config = vertumnus_generator::GeneratorConfig {
+        package_name: package_name_safe.clone(),
+        native_module_name: "_core".to_string(),
+        derive_debug: false,
+        derive_eq: false,
+        overwrite,
+    };
+    let gen = vertumnus_generator::Generator::new(annotated, gen_config);
+    let files = gen.generate()?;
+
+    if verbose {
+        eprintln!("✅ Bindings generated successfully.");
+    }
+
+    // Write output files
+    let out_path = match out {
+        Some(p) => {
+            // If a specific output path is given, use it directly
+            if p.exists() && !overwrite {
+                anyhow::bail!(
+                    "Output directory '{}' exists. Use --overwrite to overwrite.",
+                    p.display()
+                );
+            }
+            std::fs::create_dir_all(&p)?;
+            p
+        }
+        None => {
+            // Default: parent_dir/py-<crate_name> (outside the crate directory)
+            let canonical_crate = path
+                .canonicalize()
+                .map_err(|e| anyhow::anyhow!("Cannot resolve crate path: {e}"))?;
+            let parent = canonical_crate.parent().unwrap_or_else(|| Path::new("."));
+            let dir_name = format!("py-{}", ir.crate_name.replace('_', "-"));
+            let default = parent.join(&dir_name);
+            if default.exists() && !overwrite {
+                anyhow::bail!(
+                    "Output directory '{}' exists. Use --overwrite to overwrite.",
+                    default.display()
+                );
+            }
+            std::fs::create_dir_all(&default)?;
+            default
+        }
+    };
+    result.output_dir = Some(out_path.clone());
+
+    write_generated_files(&out_path, &package_name_safe, &files, verbose, overwrite)?;
+
+    if verbose {
+        eprintln!("📄 Wrote bindings to: {}", out_path.display());
+    }
+
+    // Phase 4: Scaffold build configuration
+    if verbose {
+        eprintln!("🏗️  Scaffolding build configuration...");
+    }
+
+    // Read the actual crate name from Cargo.toml (preserves hyphens)
+    let original_crate_name =
+        vertumnus_builder::read_crate_name(&canonical_path)
+            .unwrap_or_else(|_| ir.crate_name.clone());
+
+    let builder_config = vertumnus_builder::BuilderConfig {
+        output_dir: out_path.clone(),
+        crate_path: canonical_path.clone(),
+        package_name: package_name_safe.clone(),
+        crate_name: original_crate_name,
+        crate_version: ir.crate_version.clone(),
+        needs_async: has_async,
+    };
+
+    // Always scaffold pyproject.toml and Cargo.toml
+    let written = vertumnus_builder::scaffold_all(&builder_config)
+        .map_err(|e| anyhow::anyhow!("Build scaffolding failed: {e}"))?;
+
+    if verbose {
+        for w in &written {
+            eprintln!("   📄 Created: {}", w.display());
+        }
+    }
+
+    // Optionally run maturin build
+    if !no_build {
+        if verbose {
+            eprintln!("🔨 Running maturin build (release mode)...");
+        }
+
+        let wheel = vertumnus_builder::run_maturin_build(&builder_config, true)
+            .map_err(|e| anyhow::anyhow!("maturin build failed: {e}"))?;
+
+        match wheel {
+            Some(wheel_path) => {
+                eprintln!("✅ Built wheel: {}", wheel_path.display());
+            }
+            None => {
+                eprintln!("✅ maturin build completed (wheel location unknown)");
+            }
+        }
+    } else {
+        if verbose {
+            eprintln!("ℹ️  Skipping maturin build (--no-build).");
+            eprintln!(
+                "   Run `maturin build --release` in '{}' to build.",
+                out_path.display()
+            );
+        }
+    }
+
+    result.status = BatchStatus::Success;
+    Ok(result)
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -285,222 +596,155 @@ fn main() -> anyhow::Result<()> {
             verbose,
             overwrite,
         } => {
-            // Resolve canonical path for caching
-            let canonical_path = path
-                .canonicalize()
-                .map_err(|e| anyhow::anyhow!("Cannot resolve crate path: {e}"))?;
-
-            // Initialize cache (best-effort — don't fail if cache dir is unwritable)
-            let cache = cache::Cache::new(&canonical_path).ok();
-
-            // Phase 1: Inspect (or load from cache)
-            let ir = if let Some(ref cache) = cache {
-                if let Some(cached_ir) = cache.load_ir() {
-                    if verbose {
-                        eprintln!("🔍 Using cached IR (source unchanged)");
-                    }
-                    cached_ir
-                } else {
-                    if verbose {
-                        eprintln!("🔍 Inspecting crate at: {}", path.display());
-                    }
-                    let ir = vertumnus_inspector::inspect_crate(&path)?;
-                    if let Err(e) = cache.save_ir(&ir) {
-                        if verbose {
-                            eprintln!("  ℹ️  Cache write skipped: {e}");
-                        }
-                    }
-                    ir
-                }
-            } else {
-                if verbose {
-                    eprintln!("🔍 Inspecting crate at: {}", path.display());
-                }
-                vertumnus_inspector::inspect_crate(&path)?
-            };
-
-            // Phase 2: Type mapping (or load from cache)
-            let annotated = if let Some(ref cache) = cache {
-                if let Some(cached_annotated) = cache.load_annotated_ir() {
-                    if verbose {
-                        eprintln!("🗺️  Using cached mapping (source unchanged)");
-                    }
-                    cached_annotated
-                } else {
-                    if verbose {
-                        eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
-                    }
-                    let config = load_config(config.as_deref(), &path)?;
-                    let annotated = vertumnus_mapper::map_ir_with_full_context(
-                        &ir,
-                        config.as_ref(),
-                        Some(&canonical_path),
-                    )?;
-                    if let Err(e) = cache.save_annotated_ir(&annotated) {
-                        if verbose {
-                            eprintln!("  ℹ️  Cache write skipped: {e}");
-                        }
-                    }
-                    annotated
-                }
-            } else {
-                if verbose {
-                    eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
-                }
-                let config = load_config(config.as_deref(), &path)?;
-                vertumnus_mapper::map_ir_with_full_context(
-                    &ir,
-                    config.as_ref(),
-                    Some(&canonical_path),
-                )?
-            };
-
-            if dry_run {
-                // Dry-run: output annotated IR and exit
-                println!("{}", annotated.to_json_pretty()?);
-                return Ok(());
-            }
-
-            if verbose {
-                let total_warnings: usize = annotated
-                    .items
-                    .iter()
-                    .map(|i| i.mapping.warnings.len())
-                    .sum();
-                eprintln!("✅ Type mapping complete. {} warnings.", total_warnings);
-                for item in &annotated.items {
-                    for w in &item.mapping.warnings {
-                        eprintln!("  ⚠️  [{}] {}", w.location, w.message);
-                    }
-                }
-            }
-
-            // Check if any functions are async (needed for builder config)
-            let has_async = annotated.items.iter().any(|item| match &item.original {
-                vertumnus_inspector::ir::IrItem::Function(f) => f.is_async,
-                vertumnus_inspector::ir::IrItem::Struct(s) => {
-                    s.methods.iter().any(|m| m.is_async)
-                }
-                vertumnus_inspector::ir::IrItem::Enum(e) => {
-                    e.methods.iter().any(|m| m.is_async)
-                }
-                _ => false,
-            });
-
-            // Phase 3: Generate bindings
-            let package_name = package_name.unwrap_or_else(|| format!("py-{}", ir.crate_name));
-            let package_name_safe = package_name.replace('-', "_");
-
-            if verbose {
-                eprintln!(
-                    "🔧 Generating Python bindings for '{}'...",
-                    package_name_safe
-                );
-            }
-
-            let config = vertumnus_generator::GeneratorConfig {
-                package_name: package_name_safe.clone(),
-                native_module_name: "_core".to_string(),
-                derive_debug: false,
-                derive_eq: false,
+            let opts = WrapOptions {
+                path,
+                config_path: config,
+                out,
+                package_name,
+                dry_run,
+                no_build,
+                verbose,
                 overwrite,
             };
-            let gen = vertumnus_generator::Generator::new(annotated, config);
-            let files = gen.generate()?;
-
-            if verbose {
-                eprintln!("✅ Bindings generated successfully.");
+            let result = run_wrap(&opts)?;
+            if matches!(result.status, BatchStatus::Failed) {
+                if let Some(err) = &result.error {
+                    eprintln!("❌ Wrap failed: {err}");
+                }
+                std::process::exit(1);
             }
+        }
 
-            // Write output files
-            let out_path = match out {
-                Some(p) => {
-                    if p.exists() && !overwrite {
-                        anyhow::bail!(
-                            "Output directory '{}' exists. Use --overwrite to overwrite.",
-                            p.display()
-                        );
+        Commands::Batch { action, verbose } => {
+            match action {
+                BatchAction::Wrap {
+                    paths,
+                    config,
+                    out_dir,
+                    no_build,
+                    overwrite,
+                    keep_going,
+                } => {
+                    if paths.is_empty() {
+                        anyhow::bail!("No crate paths provided. Specify at least one crate path.");
                     }
-                    std::fs::create_dir_all(&p)?;
-                    p
-                }
-                None => {
-                    // Default: parent_dir/py-<crate_name> (outside the crate directory)
-                    let canonical_crate = path
-                        .canonicalize()
-                        .map_err(|e| anyhow::anyhow!("Cannot resolve crate path: {e}"))?;
-                    let parent = canonical_crate.parent().unwrap_or_else(|| Path::new("."));
-                    let dir_name = format!("py-{}", ir.crate_name.replace('_', "-"));
-                    let default = parent.join(&dir_name);
-                    if default.exists() && !overwrite {
-                        anyhow::bail!(
-                            "Output directory '{}' exists. Use --overwrite to overwrite.",
-                            default.display()
-                        );
+
+                    // Expand any glob patterns in paths
+                    let expanded_paths: Vec<PathBuf> = paths
+                        .iter()
+                        .flat_map(|p| {
+                            let p_str = p.to_string_lossy();
+                            if p_str.contains('*') || p_str.contains('?') {
+                                match glob::glob(&p_str) {
+                                    Ok(entries) => entries
+                                        .filter_map(|e| e.ok())
+                                        .filter(|e| e.join("Cargo.toml").exists())
+                                        .collect(),
+                                    Err(_) => vec![p.clone()], // fall back to literal
+                                }
+                            } else {
+                                vec![p.clone()]
+                            }
+                        })
+                        .collect();
+
+                    if expanded_paths.is_empty() {
+                        anyhow::bail!("No valid crate paths found after expanding patterns.");
                     }
-                    std::fs::create_dir_all(&default)?;
-                    default
-                }
-            };
 
-            write_generated_files(&out_path, &package_name_safe, &files, verbose, overwrite)?;
+                    let total = expanded_paths.len();
+                    let mut results: Vec<BatchCrateResult> = Vec::with_capacity(total);
 
-            if verbose {
-                eprintln!("📄 Wrote bindings to: {}", out_path.display());
-            }
-
-            // Phase 4: Scaffold build configuration
-            if verbose {
-                eprintln!("🏗️  Scaffolding build configuration...");
-            }
-
-            // Read the actual crate name from Cargo.toml (preserves hyphens)
-            let original_crate_name = vertumnus_builder::read_crate_name(&canonical_path)
-                .unwrap_or_else(|_| ir.crate_name.clone());
-
-            let builder_config = vertumnus_builder::BuilderConfig {
-                output_dir: out_path.clone(),
-                crate_path: canonical_path.clone(),
-                package_name: package_name_safe.clone(),
-                crate_name: original_crate_name,
-                crate_version: ir.crate_version.clone(),
-                needs_async: has_async,
-            };
-
-            // Always scaffold pyproject.toml and Cargo.toml
-            let written = vertumnus_builder::scaffold_all(&builder_config)
-                .map_err(|e| anyhow::anyhow!("Build scaffolding failed: {e}"))?;
-
-            if verbose {
-                for w in &written {
-                    eprintln!("   📄 Created: {}", w.display());
-                }
-            }
-
-            // Optionally run maturin build
-            if !no_build {
-                if verbose {
-                    eprintln!("🔨 Running maturin build (release mode)...");
-                }
-
-                let wheel = vertumnus_builder::run_maturin_build(&builder_config, true)
-                    .map_err(|e| anyhow::anyhow!("maturin build failed: {e}"))?;
-
-                match wheel {
-                    Some(path) => {
-                        eprintln!("✅ Built wheel: {}", path.display());
-                    }
-                    None => {
-                        eprintln!("✅ maturin build completed (wheel location unknown)");
-                    }
-                }
-            } else {
-                if verbose {
-                    eprintln!("ℹ️  Skipping maturin build (--no-build).");
                     eprintln!(
-                        "   Run `maturin build --release` in '{}' to build.",
-                        out_path.display()
+                        "📦 Batch wrapping {} crate(s)...",
+                        total
                     );
+
+                    for (i, crate_path) in expanded_paths.iter().enumerate() {
+                        eprintln!(
+                            "\n[{}/{}] Wrapping: {}",
+                            i + 1,
+                            total,
+                            crate_path.display()
+                        );
+
+                        // For batch mode, determine output directory per crate
+                        let crate_out = out_dir.as_ref().map(|root| {
+                            // Use the crate's directory name as subfolder name
+                            let dir_name = crate_path
+                                .file_name()
+                                .map(|n| format!("py-{}", n.to_string_lossy()))
+                                .unwrap_or_else(|| "py-unknown".to_string());
+                            root.join(&dir_name)
+                        });
+
+                        let batch_opts = WrapOptions {
+                            path: crate_path.clone(),
+                            config_path: config.clone(),
+                            out: crate_out,
+                            package_name: None,
+                            dry_run: false,
+                            no_build,
+                            verbose,
+                            overwrite,
+                        };
+                        match run_wrap(&batch_opts) {
+                            Ok(result) => {
+                                if matches!(result.status, BatchStatus::Success) {
+                                    eprintln!(
+                                        "✅ [{}/{}] {} — wrapped successfully",
+                                        i + 1,
+                                        total,
+                                        result.crate_name
+                                    );
+                                }
+                                results.push(result);
+                            }
+                            Err(e) => {
+                                if keep_going {
+                                    eprintln!("❌ [{}/{}] {} — failed: {e}", i + 1, total, crate_path.display());
+                                    results.push(BatchCrateResult {
+                                        crate_name: crate_path
+                                            .file_name()
+                                            .map(|s| s.to_string_lossy().to_string())
+                                            .unwrap_or_default(),
+                                        status: BatchStatus::Failed,
+                                        error: Some(e.to_string()),
+                                        ..Default::default()
+                                    });
+                                } else {
+                                    eprintln!("❌ [{}/{}] {} — failed: {e}", i + 1, total, crate_path.display());
+                                    eprintln!("💡 Use --keep-going to continue wrapping remaining crates.");
+                                    return Err(e);
+                                }
+                            }
+                        }
+                    }
+
+                    // Print summary
+                    eprintln!("\n📊 Batch wrap summary:");
+                    let successes = results.iter().filter(|r| matches!(r.status, BatchStatus::Success)).count();
+                    let failures = results.iter().filter(|r| matches!(r.status, BatchStatus::Failed)).count();
+                    let total_warnings: usize = results.iter().map(|r| r.warning_count).sum();
+
+                    eprintln!("   Total: {total}, Success: {successes}, Failed: {failures}, Warnings: {total_warnings}");
+
+                    for r in &results {
+                        let icon = match r.status {
+                            BatchStatus::Success => "✅",
+                            BatchStatus::Skipped => "⏭️",
+                            BatchStatus::Failed => "❌",
+                        };
+                        let out_str = r
+                            .output_dir
+                            .as_ref()
+                            .map(|d| d.display().to_string())
+                            .unwrap_or_default();
+                        eprintln!("   {icon} {} — warnings: {} — output: {}", r.crate_name, r.warning_count, out_str);
+                        if let Some(err) = &r.error {
+                            eprintln!("       error: {err}");
+                        }
+                    }
                 }
             }
         }

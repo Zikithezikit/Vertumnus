@@ -903,3 +903,159 @@ fn test_wrap_no_build_async_generates_pyo3_asyncio_dep() {
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
+
+// ---------------------------------------------------------------------------
+// Batch wrap tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_batch_wrap_multiple_crates() {
+    let workspace = workspace_root();
+    let simple_math = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("simple-math");
+    let string_utils = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("string-utils");
+
+    // Remove caches to ensure fresh inspection
+    let _ = std::fs::remove_dir_all(simple_math.join(".cache"));
+    let _ = std::fs::remove_dir_all(string_utils.join(".cache"));
+
+    let out_dir = temp_out_dir("batch-multi");
+
+    let (_stdout, stderr, status) = run_vertumnus(&[
+        "batch",
+        "wrap",
+        simple_math.to_str().unwrap(),
+        string_utils.to_str().unwrap(),
+        "--out-dir",
+        out_dir.to_str().unwrap(),
+        "--no-build",
+        "--overwrite",
+    ]);
+    assert!(
+        status.success(),
+        "batch wrap failed: {}",
+        stderr
+    );
+
+    // Check that both crate outputs exist (named py-<directory_name>)
+    let simple_math_out = out_dir.join("py-simple-math");
+    let string_utils_out = out_dir.join("py-string-utils");
+
+    assert!(
+        simple_math_out.join("src").join("lib.rs").exists(),
+        "simple-math output should exist at {:?}",
+        simple_math_out
+    );
+    assert!(
+        string_utils_out.join("src").join("lib.rs").exists(),
+        "string-utils output should exist at {:?}",
+        string_utils_out
+    );
+
+    // Check for summary in stderr
+    assert!(stderr.contains("Batch wrap summary"), "stderr should contain summary");
+    assert!(stderr.contains("Success: 2"), "should report 2 successes");
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn test_batch_wrap_empty_paths_error() {
+    let (_stdout, stderr, status) = run_vertumnus(&["batch", "wrap"]);
+    assert!(
+        !status.success(),
+        "batch wrap with no paths should fail"
+    );
+    assert!(
+        stderr.contains("No crate paths provided"),
+        "should give helpful error message"
+    );
+}
+
+#[test]
+fn test_batch_wrap_keep_going() {
+    let workspace = workspace_root();
+    let simple_math = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("simple-math");
+    let nonexistent = workspace.join("tests").join("fixtures").join("nonexistent-crate");
+
+    let out_dir = temp_out_dir("batch-keep-going");
+
+    let (_stdout, stderr, status) = run_vertumnus(&[
+        "batch",
+        "wrap",
+        simple_math.to_str().unwrap(),
+        nonexistent.to_str().unwrap(),
+        "--out-dir",
+        out_dir.to_str().unwrap(),
+        "--no-build",
+        "--overwrite",
+        "--keep-going",
+    ]);
+    // Should succeed overall because --keep-going allows partial failures
+    assert!(
+        status.success(),
+        "batch wrap with --keep-going should succeed: {}",
+        stderr
+    );
+
+    // Check that simple-math succeeded
+    let simple_math_out = out_dir.join("py-simple-math");
+    assert!(
+        simple_math_out.join("src").join("lib.rs").exists(),
+        "simple-math output should exist"
+    );
+
+    // Summary should show 1 success, 1 failure
+    assert!(stderr.contains("Success: 1"), "should report 1 success");
+    assert!(stderr.contains("Failed: 1"), "should report 1 failure");
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn test_batch_wrap_rejects_duplicate_output() {
+    let workspace = workspace_root();
+    let simple_math = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("simple-math");
+
+    let out_dir = temp_out_dir("batch-duplicate");
+
+    // First batch wrap should succeed
+    let (_stdout, stderr, status) = run_vertumnus(&[
+        "batch",
+        "wrap",
+        simple_math.to_str().unwrap(),
+        "--out-dir",
+        out_dir.to_str().unwrap(),
+        "--no-build",
+        "--overwrite",
+    ]);
+    assert!(status.success(), "first batch wrap failed: {}", stderr);
+
+    // Second batch wrap without --overwrite should fail on the existing output
+    let (_stdout, stderr, status) = run_vertumnus(&[
+        "batch",
+        "wrap",
+        simple_math.to_str().unwrap(),
+        "--out-dir",
+        out_dir.to_str().unwrap(),
+        "--no-build",
+    ]);
+    assert!(
+        !status.success(),
+        "second batch wrap without --overwrite should fail"
+    );
+    assert!(stderr.contains("exists") || stderr.contains("exist"), "should mention existing output");
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}

@@ -25,6 +25,7 @@ toml = "0.8"
 ureq = { version = "2", features = ["tls"] }
 dirs = "5"
 thiserror = "2"
+glob = "0.3"
 
 [dev-dependencies]
 serde_json = "1"
