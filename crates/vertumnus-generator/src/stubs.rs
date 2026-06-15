@@ -321,16 +321,52 @@ fn generate_enum_stub(
     }
 
     let is_c_like = e.variants.iter().all(|v| v.fields.is_empty());
+    let is_data_enum = item.mapping.pyo3_strategy == PyO3Strategy::DataEnum;
 
     if is_c_like {
         stub.push_str(&format!("class {}(IntEnum):\n", e.name));
-
         for variant in &e.variants {
             stub.push_str(&format!("    {} = ...\n", variant.name));
         }
-    } else {
+    } else if is_data_enum {
         stub.push_str(&format!("class {}:\n", e.name));
 
+        for variant in &e.variants {
+            let variant_lower = to_snake_case(&variant.name);
+            if variant.fields.is_empty() {
+                // Fieldless variant — constant property
+                stub.push_str(&format!(
+                    "    @staticmethod\n    def {}() -> \"{}\": ...\n",
+                    variant_lower, e.name
+                ));
+                stub.push_str(&format!(
+                    "    @property\n    def is_{}(self) -> bool: ...\n",
+                    variant_lower
+                ));
+            } else {
+                // Data variant — constructor with parameters
+                let params: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        let py_type = ir_type_to_python_type(&f.type_str);
+                        format!("{}: {}", f.name, py_type)
+                    })
+                    .collect();
+                stub.push_str(&format!(
+                    "    @staticmethod\n    def {}({}) -> \"{}\": ...\n",
+                    variant_lower,
+                    params.join(", "),
+                    e.name
+                ));
+                stub.push_str(&format!(
+                    "    @property\n    def is_{}(self) -> bool: ...\n",
+                    variant_lower
+                ));
+            }
+        }
+    } else {
+        stub.push_str(&format!("class {}:\n", e.name));
         for variant in &e.variants {
             if variant.fields.is_empty() {
                 stub.push_str(&format!(
@@ -647,6 +683,27 @@ fn partition_map_by_kind<'a>(
     }
 
     (functions, structs, enums, traits, impls)
+}
+
+// ---------------------------------------------------------------------------
+// Utility: CamelCase to snake_case
+// ---------------------------------------------------------------------------
+
+/// Convert a CamelCase/PascalCase identifier to snake_case.
+fn to_snake_case(name: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = name.chars().collect();
+    for (i, c) in chars.iter().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            let prev = chars[i - 1];
+            let next = chars.get(i + 1);
+            if prev.is_lowercase() || (prev.is_uppercase() && next.is_some_and(|n| n.is_lowercase())) {
+                result.push('_');
+            }
+        }
+        result.push(c.to_ascii_lowercase());
+    }
+    result
 }
 
 #[cfg(test)]

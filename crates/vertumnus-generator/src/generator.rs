@@ -230,7 +230,8 @@ impl Generator {
             .filter_map(|item| match &item.original {
                 IrItem::Enum(e)
                     if item.mapping.pyo3_strategy == PyO3Strategy::PyEnum
-                        || item.mapping.pyo3_strategy == PyO3Strategy::PyClass =>
+                        || item.mapping.pyo3_strategy == PyO3Strategy::PyClass
+                        || item.mapping.pyo3_strategy == PyO3Strategy::DataEnum =>
                 {
                     Some(e.name.clone())
                 }

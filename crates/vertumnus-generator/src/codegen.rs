@@ -573,6 +573,7 @@ pub fn generate_enum_wrapper(
 
     // Check if this is a C-like enum (all variants have no fields)
     let is_c_like = e.variants.iter().all(|v| v.fields.is_empty());
+    let is_data_enum = mapping.pyo3_strategy == PyO3Strategy::DataEnum;
 
     // Doc comment
     if !e.doc.is_empty() {
@@ -602,6 +603,66 @@ pub fn generate_enum_wrapper(
             code.push_str(&format!("    {},\n", variant.name));
         }
         code.push_str("}\n");
+    } else if is_data_enum {
+        // Data-carrying enum — generate as a struct wrapping the inner enum
+        code.push_str("#[derive(Clone)]\n");
+        code.push_str(&format!(
+            "pub struct {} {{\n    inner: _crate::{},\n}}\n\n",
+            e.name, e.name
+        ));
+        code.push_str(&format!("#[pymethods]\nimpl {} {{\n", e.name));
+        for variant in &e.variants {
+            let variant_lower = to_snake_case(&variant.name);
+            if variant.fields.is_empty() {
+                // Fieldless variant — constant accessor
+                code.push_str(&format!(
+                    "    #[staticmethod]\n    pub fn {}() -> Self {{\n        Self {{ inner: _crate::{}::{} }}\n    }}\n\n",
+                    variant_lower, e.name, variant.name
+                ));
+                code.push_str(&format!(
+                    "    pub fn is_{}(&self) -> bool {{\n        matches!(self.inner, _crate::{}::{})\n    }}\n\n",
+                    variant_lower, e.name, variant.name
+                ));
+            } else {
+                // Data variant — constructor with parameters
+                let params: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        let py_type = ir_type_to_pyo3_type(&f.type_str);
+                        format!("{}: {}", f.name, py_type)
+                    })
+                    .collect();
+                let args: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .map(|f| f.name.clone())
+                    .collect();
+                code.push_str(&format!(
+                    "    #[staticmethod]\n    pub fn {}({}) -> Self {{\n        Self {{ inner: _crate::{}::{}({}) }}\n    }}\n\n",
+                    variant_lower,
+                    params.join(", "),
+                    e.name,
+                    variant.name,
+                    args.join(", ")
+                ));
+                // For data variants, use a placeholder pattern matching all variants of that name
+                let underscore_args: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .map(|_| "_".to_string())
+                    .collect();
+                code.push_str(&format!(
+                    "    pub fn is_{}(&self) -> bool {{\n        matches!(self.inner, _crate::{}::{}({}))\n    }}\n\n",
+                    variant_lower,
+                    e.name,
+                    variant.name,
+                    underscore_args.join(", ")
+                ));
+            }
+        }
+        code.push_str("}\n\n");
+        return code;
     } else {
         // Enum with data — limited representation
         code.push_str("// VERTUMNUS: Enum has data-carrying variants.\n");
@@ -1371,6 +1432,34 @@ fn split_type_args_once(s: &str) -> Option<(&str, &str)> {
         }
     }
     None
+}
+
+// ---------------------------------------------------------------------------
+// Utility: CamelCase to snake_case
+// ---------------------------------------------------------------------------
+
+/// Convert a CamelCase/PascalCase identifier to snake_case.
+///
+/// Examples:
+/// - `EmptyInput` → `empty_input`
+/// - `TooLong` → `too_long`
+/// - `InvalidCharacter` → `invalid_character`
+/// - `HTTPServer` → `http_server`
+#[doc(hidden)]
+pub fn to_snake_case(name: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = name.chars().collect();
+    for (i, c) in chars.iter().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            let prev = chars[i - 1];
+            let next = chars.get(i + 1);
+            if prev.is_lowercase() || (prev.is_uppercase() && next.is_some_and(|n| n.is_lowercase())) {
+                result.push('_');
+            }
+        }
+        result.push(c.to_ascii_lowercase());
+    }
+    result
 }
 
 #[cfg(test)]

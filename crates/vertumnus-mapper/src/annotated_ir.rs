@@ -63,6 +63,8 @@ pub enum PyO3Strategy {
     MapErr,
     /// Async function — use pyo3-asyncio to bridge to Python coroutines
     AsyncWrapper,
+    /// Data-carrying enum — generated as a wrapper struct with variant constructors
+    DataEnum,
     /// Manual stub required — `// VERTUMNUS: manual binding required`
     ManualStub,
 }

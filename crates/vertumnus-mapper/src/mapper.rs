@@ -367,12 +367,12 @@ fn map_enum(
     } else if !is_c_like {
         warnings.push(MappingWarning {
             message: format!(
-                "Enum '{}' has data-carrying variants — requires manual binding.",
+                "Enum '{}' has data-carrying variants — generating dispatch class.",
                 e.name
             ),
             location: e.name.clone(),
         });
-        PyO3Strategy::ManualStub
+        PyO3Strategy::DataEnum
     } else {
         PyO3Strategy::PyEnum
     };

@@ -587,6 +587,162 @@ fn test_full_wrap_simple_math() {
 }
 
 // ---------------------------------------------------------------------------
+// Data-carrying enum tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_inspect_data_enum_has_fields() {
+    let workspace = workspace_root();
+    let fixture = workspace.join("tests").join("fixtures").join("data-structures");
+
+    let (stdout, stderr, status) = run_vertumnus(&[
+        "inspect",
+        fixture.to_str().unwrap(),
+    ]);
+    assert!(status.success(), "inspect failed: {}", stderr);
+
+    let ir: serde_json::Value =
+        serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+
+    // Find the ValidationError enum
+    let items = ir["items"].as_array().expect("items should be an array");
+    let validation_enum = items.iter().find(|item| {
+        item["kind"] == "enum" && item["name"] == "ValidationError"
+    });
+    assert!(validation_enum.is_some(), "ValidationError enum should be in IR");
+
+    let variants = validation_enum.unwrap()["variants"].as_array()
+        .expect("variants should be an array");
+    
+    // Check EmptyInput has no fields
+    let empty = variants.iter().find(|v| v["name"] == "EmptyInput").unwrap();
+    assert_eq!(empty["fields"].as_array().unwrap().len(), 0, "EmptyInput should have no fields");
+
+    // Check TooLong has fields
+    let too_long = variants.iter().find(|v| v["name"] == "TooLong").unwrap();
+    assert!(!too_long["fields"].as_array().unwrap().is_empty(), "TooLong should have fields");
+
+    // Check InvalidCharacter has a field
+    let invalid = variants.iter().find(|v| v["name"] == "InvalidCharacter").unwrap();
+    assert!(!invalid["fields"].as_array().unwrap().is_empty(), "InvalidCharacter should have fields");
+}
+
+#[test]
+fn test_map_data_enum_uses_data_enum_strategy() {
+    let workspace = workspace_root();
+    let fixture = workspace.join("tests").join("fixtures").join("data-structures");
+
+    // Inspect to get IR
+    let (stdout, _stderr, status) = run_vertumnus(&[
+        "inspect",
+        fixture.to_str().unwrap(),
+    ]);
+    assert!(status.success(), "inspect failed");
+
+    // Pipe inspect -> map via a temp file
+    let ir_file = temp_out_dir("data-enum-ir").join("ir.json");
+    std::fs::write(&ir_file, &stdout).unwrap();
+
+    let (map_stdout, map_stderr, map_status) = run_vertumnus(&[
+        "map",
+        ir_file.to_str().unwrap(),
+    ]);
+    assert!(map_status.success(), "map failed: {}", map_stderr);
+
+    let annotated: serde_json::Value =
+        serde_json::from_str(&map_stdout).expect("stdout should be valid JSON");
+
+    // Find ValidationError in annotated IR
+    let items = annotated["items"].as_array().expect("items should be an array");
+    let validation_item = items.iter().find(|item| {
+        item["original"]["kind"] == "enum" && item["original"]["name"] == "ValidationError"
+    });
+    assert!(validation_item.is_some(), "ValidationError should be in annotated IR");
+    assert_eq!(
+        validation_item.unwrap()["mapping"]["pyo3_strategy"],
+        "data_enum",
+        "ValidationError should use DataEnum strategy"
+    );
+}
+
+#[test]
+fn test_wrap_no_build_data_enum_generates_constructors() {
+    let workspace = workspace_root();
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("data-structures");
+
+    // Remove cache to ensure fresh inspection
+    let cache_dir = fixture.join(".cache");
+    let _ = std::fs::remove_dir_all(&cache_dir);
+
+    let out_dir = temp_out_dir("wrap-data-enum");
+
+    let (_stdout, stderr, status) = run_vertumnus(&[
+        "wrap",
+        fixture.to_str().unwrap(),
+        "--out",
+        out_dir.to_str().unwrap(),
+        "--package-name",
+        "data_structures",
+        "--no-build",
+        "--overwrite",
+    ]);
+    assert!(
+        status.success(),
+        "wrap --no-build data-structures failed: {}",
+        stderr
+    );
+
+    // Check that generated lib.rs has DataEnum pattern
+    let lib_rs = std::fs::read_to_string(out_dir.join("src").join("lib.rs"))
+        .expect("lib.rs should exist");
+    assert!(
+        lib_rs.contains("ValidationError"),
+        "lib.rs should contain ValidationError"
+    );
+    assert!(
+        lib_rs.contains("empty_input"),
+        "lib.rs should contain empty_input constructor"
+    );
+    assert!(
+        lib_rs.contains("invalid_character"),
+        "lib.rs should contain invalid_character constructor"
+    );
+    assert!(
+        lib_rs.contains("is_empty_input"),
+        "lib.rs should contain is_empty_input check"
+    );
+    assert!(
+        lib_rs.contains("is_too_long"),
+        "lib.rs should contain is_too_long check"
+    );
+
+    // Check that .pyi stub has async def
+    let pyi = std::fs::read_to_string(out_dir.join("data_structures.pyi"))
+        .expect("pyi should exist");
+    assert!(
+        pyi.contains("class ValidationError:"),
+        "pyi should have ValidationError class"
+    );
+    assert!(
+        pyi.contains("def empty_input"),
+        "pyi should have empty_input method"
+    );
+    assert!(
+        pyi.contains("def invalid_character"),
+        "pyi should have invalid_character method"
+    );
+    assert!(
+        pyi.contains("def is_too_long"),
+        "pyi should have is_too_long property"
+    );
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+// ---------------------------------------------------------------------------
 // Edge case tests
 // ---------------------------------------------------------------------------
 
