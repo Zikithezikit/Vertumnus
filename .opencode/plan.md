@@ -2,7 +2,7 @@
 
 > **Goal:** Make Vertumnus work for arbitrary Rust crates dynamically and scalably.
 > **Date:** 2026-06-15
-> **Status:** Active — Sprint 1 in progress (A1 → C1)
+> **Status:** Active — Sprint 2 in progress (A1 ✅, C1 ✅, A2 ✅, B1 → next)
 
 ---
 
@@ -272,7 +272,7 @@ Load plugins via `dlopen` (`libloading`) or WASM. Ships separately from Vertumnu
 | 1 | **A1 — Config file type mappings** | Lets users wrap 10× more crates immediately | 1–2 days |
 | 2 | **C1 — Parallel item mapping** | 2–5× faster on large crates | 1 day |
 | 3 | **B1 — Auto-detect monomorphization** | Fewer ManualStubs for generic-heavy crates | 2–3 days |
-| 4 | **A2 — `syn` fallback for stable Rust** | Works on every crate, not just nightly | 3–5 days |
+| 4 | **A2 — `syn` fallback for stable Rust** ✅ | Works on every crate, not just nightly | 3–5 days → done |
 | 5 | **C2 — Incremental cache** | 10–50× faster re-wraps | 2–3 days |
 | 6 | **A3 — Dependency-aware type resolution** | Handles re-exports and dependency types | 3–4 days |
 | 7 | **E1 — Async function support** | Unlocks ~40% of modern Rust crates | 3–5 days |

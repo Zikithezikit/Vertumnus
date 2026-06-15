@@ -3,6 +3,9 @@
 //! Inspects a Rust crate's public API by running `cargo +nightly rustdoc`
 //! with `--output-format json` and parsing the resulting structure into
 //! Vertumnus's Intermediate Representation (IR).
+//!
+//! If rustdoc (nightly) is not available, falls back to `syn`-based source
+//! parsing (stable Rust).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -34,7 +37,43 @@ pub enum InspectError {
 }
 
 /// Inspect a Rust crate and produce an Intermediate Representation.
+///
+/// This function first tries the primary path: running
+/// `cargo +nightly rustdoc -- --output-format json` and parsing the output.
+/// If that fails (e.g., nightly toolchain not installed, or rustdoc JSON
+/// format issues), it falls back to `syn`-based source code parsing.
 pub fn inspect_crate(crate_path: &Path) -> Result<IntermediateRepresentation, InspectError> {
+    // Attempt primary path: rustdoc JSON
+    match inspect_crate_rustdoc(crate_path) {
+        Ok(ir) => Ok(ir),
+        Err(primary_err) => {
+            // Log the primary error for debugging, but try fallback
+            // Check if this is a non-recoverable error (e.g., crate doesn't exist)
+            // vs. a recoverable technical issue (nightly not available, missing JSON output)
+            let should_fallback = matches!(
+                &primary_err,
+                InspectError::CargoRustdocFailed(_)
+                    | InspectError::OutputFileNotFound { .. }
+            );
+
+            if should_fallback {
+                // Try syn-based fallback
+                match crate::syn_parser::inspect_crate_with_syn(crate_path) {
+                    Ok(ir) => Ok(ir),
+                    Err(syn_err) => Err(InspectError::CargoRustdocFailed(format!(
+                        "Primary (rustdoc) failed: {}\nFallback (syn) also failed: {}",
+                        primary_err, syn_err
+                    ))),
+                }
+            } else {
+                Err(primary_err)
+            }
+        }
+    }
+}
+
+/// Inspect a crate using only the rustdoc JSON path (no syn fallback).
+pub fn inspect_crate_rustdoc(crate_path: &Path) -> Result<IntermediateRepresentation, InspectError> {
     let rustdoc_json = run_rustdoc_json(crate_path)?;
     let parsed: Value = serde_json::from_str(&rustdoc_json)?;
     convert_rustdoc_to_ir(crate_path, &parsed)
