@@ -11,6 +11,7 @@ use vertumnus_inspector::ir::{
 
 use crate::annotated_ir::{AnnotatedIr, AnnotatedItem, MappingWarning, PyO3Strategy, TypeMapping};
 use crate::config::VertumnusConfig;
+use crate::monomorphization::detect_and_generate_concrete_wrappers;
 use crate::type_parser::{map_type_with_config, MappedType};
 
 /// Errors that can occur during type mapping.
@@ -51,6 +52,13 @@ pub fn map_ir_with_config(
         .par_iter()
         .map(|item| map_item(item, config))
         .collect();
+
+    // B1: Auto-detect monomorphization — generate concrete wrapper items
+    // for generic types with concrete usages in the public API.
+    let concrete_wrappers = detect_and_generate_concrete_wrappers(ir);
+    if !concrete_wrappers.is_empty() {
+        annotated.items.extend(concrete_wrappers);
+    }
 
     Ok(annotated)
 }

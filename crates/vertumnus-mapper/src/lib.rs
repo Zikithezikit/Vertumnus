@@ -17,6 +17,7 @@
 pub mod annotated_ir;
 pub mod config;
 pub mod mapper;
+pub mod monomorphization;
 pub mod type_parser;
 
 pub use annotated_ir::{AnnotatedIr, AnnotatedItem, MappingWarning, PyO3Strategy, TypeMapping};

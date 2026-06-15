@@ -203,7 +203,7 @@ mod tests {
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(0);
         let dir = std::env::temp_dir().join(format!("vertumnus_test_auto_detect_{}", unique_id));
-        std::fs::create_dir_all(&dir.join(".vertumnus")).unwrap();
+        std::fs::create_dir_all(dir.join(".vertumnus")).unwrap();
         let config_path = dir.join(".vertumnus").join("config.toml");
         let content = r#"
 [type_mappings]
