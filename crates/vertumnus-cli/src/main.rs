@@ -375,6 +375,18 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
+            // Check if any functions are async (needed for builder config)
+            let has_async = annotated.items.iter().any(|item| match &item.original {
+                vertumnus_inspector::ir::IrItem::Function(f) => f.is_async,
+                vertumnus_inspector::ir::IrItem::Struct(s) => {
+                    s.methods.iter().any(|m| m.is_async)
+                }
+                vertumnus_inspector::ir::IrItem::Enum(e) => {
+                    e.methods.iter().any(|m| m.is_async)
+                }
+                _ => false,
+            });
+
             // Phase 3: Generate bindings
             let package_name = package_name.unwrap_or_else(|| format!("py-{}", ir.crate_name));
             let package_name_safe = package_name.replace('-', "_");
@@ -452,6 +464,7 @@ fn main() -> anyhow::Result<()> {
                 package_name: package_name_safe.clone(),
                 crate_name: original_crate_name,
                 crate_version: ir.crate_version.clone(),
+                needs_async: has_async,
             };
 
             // Always scaffold pyproject.toml and Cargo.toml

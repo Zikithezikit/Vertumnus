@@ -185,16 +185,6 @@ fn generate_function_stub(func: &FunctionItem, item: &AnnotatedItem) -> String {
         return stub;
     }
 
-    // Async warning
-    if func.is_async {
-        stub.push_str("# NOTE: This function is async — use with an async runtime.\n");
-        stub.push_str(&format!(
-            "def {}(*args: Any, **kwargs: Any) -> Any: ...\n\n",
-            func.name
-        ));
-        return stub;
-    }
-
     // Build parameter list
     let params: Vec<String> = func
         .inputs
@@ -222,12 +212,22 @@ fn generate_function_stub(func: &FunctionItem, item: &AnnotatedItem) -> String {
         ir_type_to_python_type(&func.output.type_str)
     };
 
-    stub.push_str(&format!(
-        "def {}({}) -> {}: ...\n\n",
-        func.name,
-        params.join(", "),
-        return_type
-    ));
+    // Async functions use `async def` and return a coroutine (the return type itself)
+    if func.is_async {
+        stub.push_str(&format!(
+            "async def {}({}) -> {}: ...\n\n",
+            func.name,
+            params.join(", "),
+            return_type
+        ));
+    } else {
+        stub.push_str(&format!(
+            "def {}({}) -> {}: ...\n\n",
+            func.name,
+            params.join(", "),
+            return_type
+        ));
+    }
 
     stub
 }
@@ -409,12 +409,22 @@ fn generate_method_stub(method: &FunctionItem, strategy: &PyO3Strategy) -> Strin
         ir_type_to_python_type(&method.output.type_str)
     };
 
-    stub.push_str(&format!(
-        "def {}({}) -> {}: ...\n",
-        method.name,
-        params.join(", "),
-        return_type
-    ));
+    // Async methods use `async def`
+    if method.is_async || *strategy == PyO3Strategy::AsyncWrapper {
+        stub.push_str(&format!(
+            "async def {}({}) -> {}: ...\n",
+            method.name,
+            params.join(", "),
+            return_type
+        ));
+    } else {
+        stub.push_str(&format!(
+            "def {}({}) -> {}: ...\n",
+            method.name,
+            params.join(", "),
+            return_type
+        ));
+    }
 
     stub
 }

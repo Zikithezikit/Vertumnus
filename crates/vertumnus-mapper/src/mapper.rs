@@ -177,12 +177,12 @@ fn map_function(
     } else if func.is_async {
         warnings.push(MappingWarning {
             message: format!(
-                "Function '{}' is async — not supported in v1. Manual binding required.",
+                "Function '{}' is async — using pyo3-asyncio bridge.",
                 func.name
             ),
             location: func.name.clone(),
         });
-        PyO3Strategy::ManualStub
+        PyO3Strategy::AsyncWrapper
     } else if func.has_generics {
         warnings.push(MappingWarning {
             message: format!(

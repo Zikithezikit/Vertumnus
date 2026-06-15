@@ -16,6 +16,7 @@
 //!     package_name: "my_package".to_string(),
 //!     crate_name: "original_crate".to_string(),
 //!     crate_version: "0.1.0".to_string(),
+//!     needs_async: false,
 //! };
 //! scaffold_all(&config).unwrap();
 //! run_maturin_build(&config, true).unwrap();
@@ -111,6 +112,21 @@ pub struct BuilderConfig {
     pub crate_name: String,
     /// Original Rust crate version
     pub crate_version: String,
+    /// Whether the wrapped crate has async functions (requires pyo3-asyncio)
+    pub needs_async: bool,
+}
+
+impl Default for BuilderConfig {
+    fn default() -> Self {
+        Self {
+            output_dir: PathBuf::new(),
+            crate_path: PathBuf::new(),
+            package_name: String::new(),
+            crate_name: String::new(),
+            crate_version: String::new(),
+            needs_async: false,
+        }
+    }
 }
 
 /// Scaffold all build configuration files in the output directory.
@@ -203,6 +219,12 @@ fn generate_cargo_toml(config: &BuilderConfig, abs_crate_path: &Path) -> String 
     let original_crate_path = abs_crate_path.to_string_lossy();
     let original_crate_name = &config.crate_name;
 
+    let pyo3_asyncio_dep = if config.needs_async {
+        "pyo3-asyncio = { version = \"0.21\", features = [\"tokio-runtime\"] }\n".to_string()
+    } else {
+        String::new()
+    };
+
     format!(
         r#"[package]
 name = "{package_name}"
@@ -218,10 +240,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = {{ version = "0.22", features = ["extension-module"] }}
-{original_crate_name} = {{ path = "{original_crate_path}" }}
+{pyo3_asyncio_dep}{original_crate_name} = {{ path = "{original_crate_path}" }}
 "#,
         package_name = config.package_name,
         crate_version = config.crate_version,
+        pyo3_asyncio_dep = pyo3_asyncio_dep,
         original_crate_name = original_crate_name,
         original_crate_path = original_crate_path,
     )
@@ -461,6 +484,7 @@ mod tests {
             package_name: "my_package".to_string(),
             crate_name: "my_crate".to_string(),
             crate_version: "0.1.0".to_string(),
+            needs_async: false,
         };
 
         let content = generate_pyproject_toml(&config);
@@ -480,6 +504,7 @@ mod tests {
             package_name: "my_package".to_string(),
             crate_name: "my_crate".to_string(),
             crate_version: "0.1.0".to_string(),
+            needs_async: false,
         };
 
         let content = generate_cargo_toml(&config, Path::new("/tmp/crate"));
@@ -511,6 +536,7 @@ mod tests {
             package_name: "test_pkg".to_string(),
             crate_name: "test_crate".to_string(),
             crate_version: "1.2.3".to_string(),
+            needs_async: false,
         };
 
         let written = scaffold_all(&config).unwrap();
@@ -541,6 +567,7 @@ mod tests {
             package_name: "pkg".to_string(),
             crate_name: "crate".to_string(),
             crate_version: "0.1.0".to_string(),
+            needs_async: false,
         };
 
         let result = scaffold_all(&config);
@@ -560,6 +587,7 @@ mod tests {
             package_name: "pkg".to_string(),
             crate_name: "crate".to_string(),
             crate_version: "0.1.0".to_string(),
+            needs_async: false,
         };
 
         let result = scaffold_all(&config);
@@ -613,6 +641,7 @@ mod tests {
             package_name: "my_package".to_string(),
             crate_name: "my_crate".to_string(),
             crate_version: "0.1.0".to_string(),
+            needs_async: false,
         };
 
         let content = generate_ci_workflow(&config);
@@ -640,6 +669,7 @@ mod tests {
             package_name: "test_pkg".to_string(),
             crate_name: "test_crate".to_string(),
             crate_version: "0.1.0".to_string(),
+            needs_async: false,
         };
 
         let path = scaffold_ci(&config).unwrap();
@@ -671,6 +701,7 @@ mod tests {
             package_name: "simple_math".to_string(),
             crate_name: read_crate_name(&crate_dir).unwrap(),
             crate_version: "0.1.0".to_string(),
+            needs_async: false,
         };
 
         let _ = scaffold_all(&config).unwrap();

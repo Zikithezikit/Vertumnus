@@ -61,6 +61,8 @@ pub enum PyO3Strategy {
     PyFunction,
     /// Result<T, E> — map Err to Python exception
     MapErr,
+    /// Async function — use pyo3-asyncio to bridge to Python coroutines
+    AsyncWrapper,
     /// Manual stub required — `// VERTUMNUS: manual binding required`
     ManualStub,
 }

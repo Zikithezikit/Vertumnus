@@ -610,3 +610,140 @@ fn test_map_invalid_json() {
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
+
+// ---------------------------------------------------------------------------
+// Async function support tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_inspect_async_function_is_detected() {
+    let workspace = workspace_root();
+    let fixture = workspace.join("tests").join("fixtures").join("string-utils");
+
+    let (stdout, stderr, status) = run_vertumnus(&[
+        "inspect",
+        "--verbose",
+        fixture.to_str().unwrap(),
+    ]);
+    assert!(status.success(), "inspect failed: {}", stderr);
+
+    let ir: serde_json::Value =
+        serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+
+    // Find the async_greeting function
+    let items = ir["items"].as_array().expect("items should be an array");
+    let async_fn = items.iter().find(|item| {
+        item["kind"] == "function" && item["name"] == "async_greeting"
+    });
+    assert!(
+        async_fn.is_some(),
+        "async_greeting function should be in IR"
+    );
+    assert_eq!(
+        async_fn.unwrap()["is_async"],
+        true,
+        "async_greeting should be marked as async"
+    );
+}
+
+#[test]
+fn test_map_async_function_uses_async_wrapper_strategy() {
+    let workspace = workspace_root();
+    let fixture = workspace.join("tests").join("fixtures").join("string-utils");
+
+    // First inspect to get IR
+    let (stdout, _stderr, status) = run_vertumnus(&[
+        "inspect",
+        fixture.to_str().unwrap(),
+    ]);
+    assert!(status.success(), "inspect failed");
+
+    // Pipe inspect -> map via a temp file
+    let ir_file = temp_out_dir("async-ir").join("ir.json");
+    std::fs::write(&ir_file, &stdout).unwrap();
+
+    let (map_stdout, map_stderr, map_status) = run_vertumnus(&[
+        "map",
+        ir_file.to_str().unwrap(),
+    ]);
+    assert!(map_status.success(), "map failed: {}", map_stderr);
+
+    let annotated: serde_json::Value =
+        serde_json::from_str(&map_stdout).expect("stdout should be valid JSON");
+
+    let items = annotated["items"].as_array().expect("items should be an array");
+    let async_item = items.iter().find(|item| {
+        item["original"]["kind"] == "function" && item["original"]["name"] == "async_greeting"
+    });
+    assert!(
+        async_item.is_some(),
+        "async_greeting should be in annotated IR"
+    );
+    assert_eq!(
+        async_item.unwrap()["mapping"]["pyo3_strategy"],
+        "async_wrapper",
+        "async_greeting should use AsyncWrapper strategy"
+    );
+}
+
+#[test]
+fn test_wrap_no_build_async_generates_pyo3_asyncio_dep() {
+    let workspace = workspace_root();
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("string-utils");
+
+    // Remove cache to ensure fresh inspection with the async function
+    let cache_dir = fixture.join(".cache");
+    let _ = std::fs::remove_dir_all(&cache_dir);
+
+    let out_dir = temp_out_dir("wrap-async");
+
+    let (_stdout, stderr, status) = run_vertumnus(&[
+        "wrap",
+        fixture.to_str().unwrap(),
+        "--out",
+        out_dir.to_str().unwrap(),
+        "--package-name",
+        "string_utils",
+        "--no-build",
+        "--overwrite",
+    ]);
+    assert!(
+        status.success(),
+        "wrap --no-build string-utils failed: {}",
+        stderr
+    );
+
+    // Check that Cargo.toml includes pyo3-asyncio
+    let cargo_toml = std::fs::read_to_string(out_dir.join("Cargo.toml"))
+        .expect("Cargo.toml should exist");
+    assert!(
+        cargo_toml.contains("pyo3-asyncio"),
+        "Cargo.toml should contain pyo3-asyncio dependency: {}",
+        cargo_toml
+    );
+
+    // Check that generated lib.rs has future_into_py import
+    let lib_rs = std::fs::read_to_string(out_dir.join("src").join("lib.rs"))
+        .expect("lib.rs should exist");
+    assert!(
+        lib_rs.contains("future_into_py"),
+        "lib.rs should import future_into_py"
+    );
+    assert!(
+        lib_rs.contains("async_greeting"),
+        "lib.rs should contain async_greeting wrapper"
+    );
+
+    // Check that .pyi stub has async def
+    let pyi = std::fs::read_to_string(out_dir.join("string_utils.pyi"))
+        .expect("pyi should exist");
+    assert!(
+        pyi.contains("async def async_greeting"),
+        "pyi should have async def for async_greeting"
+    );
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}

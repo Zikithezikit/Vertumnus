@@ -200,6 +200,10 @@ impl Generator {
         for import in self.needed_imports() {
             code.push_str(&format!("use {};\n", import));
         }
+        // Add pyo3-asyncio import if any function is async
+        if self.has_async_functions() {
+            code.push_str("use pyo3_asyncio::tokio::future_into_py;\n");
+        }
         // Use ::crate_name to avoid ambiguity with #[pymodule] function name
         code.push_str(&format!(
             "use ::{} as _crate;\n\n",
@@ -413,6 +417,18 @@ impl Generator {
         stubs::generate_init_py(&self.annotated, package_name, native_mod_name)
     }
 
+    /// Check if any function or method in the annotated IR is async.
+    fn has_async_functions(&self) -> bool {
+        self.annotated.items.iter().any(|item| {
+            match &item.original {
+                IrItem::Function(func) => func.is_async,
+                IrItem::Struct(s) => s.methods.iter().any(|m| m.is_async),
+                IrItem::Enum(e) => e.methods.iter().any(|m| m.is_async),
+                _ => false,
+            }
+        })
+    }
+
     /// Detect which `use` imports are needed based on the annotated IR.
     ///
     /// Scans all type strings in the IR and collects the set of types that appear
@@ -583,8 +599,11 @@ impl Generator {
 
 /// Determine the PyO3 strategy for a method based on its function item.
 fn determine_method_strategy(func: &FunctionItem, parent_strategy: &PyO3Strategy) -> PyO3Strategy {
-    if func.is_unsafe || func.is_async || func.has_generics {
+    if func.is_unsafe || func.has_generics {
         return PyO3Strategy::ManualStub;
+    }
+    if func.is_async {
+        return PyO3Strategy::AsyncWrapper;
     }
     // Check if the method's return type is Result<T, E> — if so, use MapErr
     // regardless of the parent's strategy

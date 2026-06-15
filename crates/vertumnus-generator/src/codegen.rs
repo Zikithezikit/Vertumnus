@@ -75,22 +75,50 @@ pub fn generate_function_wrapper(
         code.push_str("// VERTUMNUS: The caller must ensure safety invariants.\n");
     }
 
-    // Check for async
+    // Check for async — use pyo3-asyncio bridge
     if func.is_async {
         code.push_str("// NOTE: This function is `async` in the original crate.\n");
-        code.push_str("// VERTUMNUS: Async bindings are not supported in v1.\n");
+        code.push_str("// VERTUMNUS: Using pyo3-asyncio to bridge to Python coroutines.\n");
         code.push_str("#[pyfunction]\n");
         code.push_str("#[allow(unused_variables)]\n");
+
+        // For async functions, we need `py: Python<'_>` as first argument
+        let py_params: Vec<String> = std::iter::once("py: Python<'_>".to_string())
+            .chain(
+                func.inputs
+                    .iter()
+                    .filter(|p| p.name != "self")
+                    .map(|p| format!("{}: Bound<'_, PyAny>", p.name)),
+            )
+            .collect();
+
         code.push_str(&format!(
-            "pub fn {}_async_stub({}) -> PyResult<()> {{\n",
+            "pub fn {}({}) -> PyResult<PyObject> {{\n",
             func.name,
-            func.inputs
-                .iter()
-                .map(|p| format!("{}: Bound<'_, PyAny>", p.name))
-                .collect::<Vec<_>>()
-                .join(", ")
+            py_params.join(", ")
         ));
-        code.push_str("    Err(pyo3::exceptions::PyNotImplementedError::new_err(\"Async functions are not supported in Vertumnus v1\"))\n");
+        code.push_str("    let future = async move {\n");
+        // Build the call to the original function
+        let args: Vec<String> = func
+            .inputs
+            .iter()
+            .map(|p| {
+                if p.name == "self" {
+                    "self".to_string()
+                } else {
+                    format!("{}.extract()?", p.name)
+                }
+            })
+            .collect();
+        code.push_str(&format!(
+            "        _crate::{}({})\n",
+            func.name,
+            args.join(", ")
+        ));
+        code.push_str("    };\n");
+        code.push_str("    pyo3_asyncio::tokio::future_into_py(py, async move {\n");
+        code.push_str("        future.await.map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))\n");
+        code.push_str("    })\n");
         code.push_str("}\n\n");
         return code;
     }
@@ -682,9 +710,6 @@ fn generate_method_wrapper(
         if method.is_unsafe {
             code.push_str("    // SAFETY: Original method is unsafe.\n");
         }
-        if method.is_async {
-            code.push_str("    // NOTE: Original method is async — not supported in v1.\n");
-        }
         if method.has_generics {
             code.push_str("    // NOTE: Original method has generic parameters.\n");
         }
@@ -694,6 +719,64 @@ fn generate_method_wrapper(
             method.name
         ));
         code.push_str("        todo!(\"VERTUMNUS: manual binding required\")\n");
+        code.push_str("    }\n\n");
+        return code;
+    }
+
+    // Check for AsyncWrapper — use pyo3-asyncio bridge
+    if *strategy == PyO3Strategy::AsyncWrapper {
+        code.push_str("    // NOTE: Original method is async.\n");
+        code.push_str("    // VERTUMNUS: Using pyo3-asyncio bridge.\n");
+        let receiver = determine_receiver(method);
+
+        let self_param = match receiver {
+            Receiver::Ref => "&self",
+            Receiver::MutRef => "&mut self",
+            _ => "&self", // fallback
+        };
+
+        // Collect non-self params as Bound<'_, PyAny>
+        let other_params: Vec<String> = method
+            .inputs
+            .iter()
+            .filter(|p| p.name != "self")
+            .map(|p| format!("{}: Bound<'_, PyAny>", p.name))
+            .collect();
+
+        let param_extracts: Vec<String> = method
+            .inputs
+            .iter()
+            .map(|p| {
+                if p.name == "self" {
+                    "self".to_string()
+                } else {
+                    format!("{}.extract()?", p.name)
+                }
+            })
+            .collect();
+
+        code.push_str("    #[allow(unused_variables)]\n");
+        if other_params.is_empty() {
+            code.push_str(&format!(
+                "    fn {}({}py: Python<'_>) -> PyResult<PyObject> {{\n",
+                method.name, self_param
+            ));
+        } else {
+            code.push_str(&format!(
+                "    fn {}({}, {}) -> PyResult<PyObject> {{\n",
+                method.name,
+                self_param,
+                other_params.join(", ")
+            ));
+        }
+        code.push_str(&format!(
+            "        let future = async move {{ _crate::{}({}) }};\n",
+            method.name,
+            param_extracts.join(", ")
+        ));
+        code.push_str("        pyo3_asyncio::tokio::future_into_py(py, async move {\n");
+        code.push_str("            future.await.map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))\n");
+        code.push_str("        })\n");
         code.push_str("    }\n\n");
         return code;
     }
@@ -729,7 +812,6 @@ fn generate_method_wrapper(
                     format!("{}: {}", p.name, rt)
                 })
                 .collect();
-
             // Determine return type:
             // - MapErr: always PyResult<T> (even for #[new])
             // - Constructor (Self-returning): Self

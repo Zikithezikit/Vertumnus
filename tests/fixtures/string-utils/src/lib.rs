@@ -73,6 +73,14 @@ impl TextProcessor {
     }
 }
 
+/// An async function that simulates fetching a greeting.
+///
+/// This is used to test Vertumnus async function support.
+pub async fn async_greeting(name: &str) -> String {
+    // Simulate an async operation
+    format!("Hello, {}!", name)
+}
+
 /// Status of a text processing operation.
 #[derive(Debug, PartialEq)]
 pub enum ProcessStatus {
