@@ -1,10 +1,13 @@
 # Vertumnus — Project Memory
 
-> Last updated: 2026-06-14
-> Current branch: `main` (not yet pushed)
+> Last updated: 2026-06-15
+> Current branch: `main` (actively pushing)
 > M1 (Inspector+IR) ✅ M2 (Type Mapper) ✅ M3 (Binding Generator) ✅ M4 (Builder+CLI) ✅ **M5 (Polish) ✅**
 > All 116 tests passing (113 unit + 3 doc-test). Three fixture crates produce installable wheels.
 > Clean clippy — zero warnings.
+> 🤖 Autonomous mode active — agent works, commits, and pushes without user input.
+>     No tags until user reviews at end-of-day.
+> 📋 Scaling plan active at `.opencode/plan.md` — Sprint 1 in progress.
 
 ## Milestone Completion Status
 
@@ -288,6 +291,21 @@ docs/architecture.md                                  # Architecture docs (NEW)
 docs/type-mapping.md                                  # Type mapping reference (NEW)
 docs/limitations.md                                   # Known limitations (NEW)
 ```
+
+---
+
+## Scaling Plan (`.opencode/plan.md`)
+
+A forward-looking roadmap was created on 2026-06-15 to make Vertumnus work for arbitrary Rust crates dynamically and scalably.
+
+**Key areas addressed:**
+- **Phase A** — Config-file type mappings, stable Rust (`syn`) fallback, dependency-aware type resolution
+- **Phase B** — Auto-detect monomorphization from public API, user-provided monomorphization hints
+- **Phase C** — Parallel pipeline, incremental caching, streaming IR for huge crates
+- **Phase D** — Community type registry, batch wrapping, compatibility dashboard
+- **Phase E** — Async support, data-carrying enums, cross-crate workspaces, plugin system
+
+**Recommended first sprint:** `A1` (config file type mappings) + `C1` (parallel pipeline) — highest impact per effort.
 
 ---
 
