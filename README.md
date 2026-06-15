@@ -69,11 +69,13 @@ vertumnus generate annotated.json    # emit binding code and .pyi stubs
 | `HashMap<K,V>` | `dict[K,V]` |
 | `Option<T>` | `T \| None` |
 | `Result<T, E>` | `T` (raises `RuntimeError` on error) |
+| `PhantomData<T>` | silently skipped (no runtime repr) |
 | `struct Point { x: f64, y: f64 }` | `class Point` |
+| `struct Marker<T>(PhantomData<T>)` | `class Marker` (generics erased) |
 | `enum Direction { North, South }` | `class Direction` with variants |
 | `impl` blocks | methods on the class |
 
-Stuff Vertumnus can't handle (lifetimes, `async fn`, `dyn Trait`, generics) gets a `// VERTUMNUS: manual binding required` comment in the generated code — the tool doesn't crash, it just flags it and moves on.
+What Vertumnus **can't** automatically handle (lifetimes, `async fn`, `dyn Trait`, non-erased generics) gets a `// VERTUMNUS: manual binding required` comment — the tool doesn't crash, it just flags the item and moves on. Only the affected items need manual work; the rest of the binding is fully functional.
 
 ---
 
@@ -102,11 +104,13 @@ print(p.distance(py_simple_math.Point(4.0, 6.0)))  # 5.0
 ## Known limitations
 
 | Feature | What happens |
-|---|---|
+|---|---|---|
 | Lifetimes (`'a`, `&'a str`) | Skipped with a warning |
 | `async fn` | Skipped with a warning |
 | `dyn Trait` | Skipped with a warning |
 | Generic functions (unmonomorphized) | Skipped with a warning |
+| Generic structs with `PhantomData<T>` | **Erased** — works if T only in PhantomData |
+| Generic structs with real generic fields | Skipped with a warning |
 | `unsafe` functions | Emitted as a stub — review manually |
 
 For full details see [`docs/limitations.md`](docs/limitations.md).

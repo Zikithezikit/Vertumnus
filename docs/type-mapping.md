@@ -34,8 +34,10 @@ This document describes how Vertumnus maps Rust types to Python types and which 
 | `enum Foo` (data variants) | ⚠️ Stub | ManualStub with warning | ⚠️ |
 | `dyn Trait` | `Any` | ManualStub with warning | ⚠️ |
 | `impl Trait` | `Any` | ManualStub with warning | ⚠️ |
+| `PhantomData<T>` | `None` (silently skipped) | Native (no-op) | ✅ |
 | Lifetimes (`'a`, `'static`) | — | Warning + skip field/fn | ⚠️ |
-| Generic params (`T: Trait`) | — | Warning + ManualStub | ⚠️ |
+| Generic params (in real fields) | — | Warning + ManualStub | ⚠️ |
+| Generic params (only in `PhantomData`) | **Erased** (filled with `()`) | `PyClass` (erasure-safe) | ✅ |
 | Raw pointers (`*const T`, `*mut T`) | `Any` | ManualStub with warning | ⚠️ |
 | `async fn` | — | Warning + ManualStub | ❌ |
 
@@ -46,6 +48,8 @@ Types that map directly to Python primitives via PyO3's `FromPyObject`/`IntoPy` 
 
 ### PyClass (`#[pyclass]`)
 Rust structs that become Python classes. The generated code creates a wrapper struct with an `inner` field holding the original Rust value, then provides getter methods for each public field and delegates method calls.
+
+**Generic erasure:** If a generic struct's type parameters only appear in `PhantomData<T>` fields (no real fields use the generic), the params are erased and filled with `()`. The wrapper is generated as a non-generic `PyClass` with `inner: _crate::StructName<()>`.
 
 ### PyEnum (`#[pyclass]` + `Clone`)
 C-like enums (variants with no data) become Python classes with integer values. Methods on the enum are generated via `#[pymethods]` and delegate to the original implementation.
@@ -77,7 +81,7 @@ While `HashMap<K, V>` maps to `dict[K, V]`, the keys must be hashable in Python.
 
 The type mapper emits structured warnings for:
 - **Lifetimes:** `"Type '&'a str' has lifetime 'a' — lifetimes cannot be safely represented in Python"`
-- **Generic parameters:** `"Type 'T' is a generic parameter — manual monomorphization required"`
+- **Generic parameters (non-erased):** `"Struct 'Foo' has generic parameters — generated binding will not be generic."`
 - **`dyn Trait`:** `"Trait object 'dyn Trait' is not automatically mappable to Python"`
 - **`impl Trait`:** `"'impl Trait' return type is not automatically mappable to Python"`
 - **Data-carrying enums:** `"Enum 'Foo' has data-carrying variants — requires manual binding"`
@@ -90,10 +94,12 @@ The type mapper emits structured warnings for:
 
 The following patterns cause the item to become a ManualStub (not registered in the module):
 
-1. Any function/field type containing an unresolved generic parameter
+1. Any function/field type containing a non-erased generic parameter (appears in real fields, not just `PhantomData`)
 2. Any function/field type containing a lifetime reference
 3. Enum variants with associated data (non-C-like enums)
 4. `dyn Trait` types in function signatures or fields
 5. `impl Trait` return types
 6. Raw pointer types
 7. `async fn` signatures
+
+**Exception:** Generic parameters that only appear in `PhantomData<T>` fields are **erasure-safe** — the wrapper is generated as `PyClass` with erased params filled with `()`.

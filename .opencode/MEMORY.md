@@ -2,320 +2,110 @@
 
 > Last updated: 2026-06-15
 > Current branch: `main` (actively pushing)
-> M1 (Inspector+IR) ✅ M2 (Type Mapper) ✅ M3 (Binding Generator) ✅ M4 (Builder+CLI) ✅ **M5 (Polish) ✅**
-> All 116 tests passing (113 unit + 3 doc-test). Three fixture crates produce installable wheels.
+> Milestones M1–M5 ✅ Complete
+> All ~214 tests passing (~200 unit + ~14 integration + doc-tests). Four fixture crates produce valid output.
 > Clean clippy — zero warnings.
 > 🤖 Autonomous mode active — agent works, commits, and pushes without user input.
 >     No tags until user reviews at end-of-day.
-> 📋 Scaling plan active at `.opencode/plan.md` — Sprint 1 in progress.
+> 📋 Scaling plan active at `.opencode/plan.md` — Sprint 5 in progress (B3 ✅, next: C3)
 
-## Milestone Completion Status
+## Sprint Progress
 
-### M1 (Inspector + IR) ✅ COMPLETE
+### Sprint 1 ✅ Complete
+- **A1** — Config-file type mapping registry (`.vertumnus/config.toml`)
+- **C1** — Parallel pipeline (`rayon`-based concurrent item mapping/generation)
 
-```
-M1 commit: d5a8ac8
-Branch: main (pushed to origin/main)
-```
+### Sprint 2 ✅ Complete
+- **A2** — `syn` fallback for stable Rust (when nightly rustdoc unavailable)
+- **B1** — Auto-detect monomorphization from public API signatures
+- **C2** — Incremental cache (IR/annotated IR keyed by source content hash)
 
-**What was built:**
-- Workspace root `Cargo.toml` with 5 crate members
-- IR schema (`schemas/ir.schema.json`) — version 0.1
-- IR types in `vertumnus-inspector` (Rust structs + serde)
-- Rustdoc JSON parser handles: functions, structs, enums, traits, impl blocks, lifetimes
-- CLI `vertumnus inspect <path>` command works end-to-end
-- Test fixture `simple-math` with functions, structs, enums, generics, lifetimes
-- All 13 tests passing
+### Sprint 3 ✅ Complete
+- **A3** — Dependency-aware type resolution (`Cargo.lock` parsing, dep rustdoc peeking)
+- **D1** — Community type registry (`vertumnus registry` subcommand, GitHub-hosted mappings)
 
-**Key files:**
-```
-Cargo.toml                     # Workspace root (members + exclude)
-schemas/ir.schema.json         # IR JSON Schema v0.1
-crates/vertumnus-inspector/
-  src/ir.rs                    # IR types: IntermediateRepresentation, IrItem, FunctionItem, etc.
-  src/inspector.rs             # Rustdoc JSON parser (~800 lines)
-crates/vertumnus-cli/
-  src/main.rs                  # CLI: wrap, inspect, map, generate subcommands
-tests/fixtures/simple-math/    # Test fixture with all IR features
-```
+### Sprint 4 ✅ Complete
+- **E1** — Async function support (`pyo3-asyncio` bridge for `async fn`)
+- **E2** — Data-carrying enum support (Python classes for enum variants with data)
 
-### M2 (Type Mapper) ✅ COMPLETE
-
-```
-M2 commit: (in progress, not yet committed)
-Branch: main
-```
-
-**What was built:**
-- Annotated IR types (`annotated_ir.rs`) — `AnnotatedIr`, `AnnotatedItem`, `TypeMapping`, `PyO3Strategy`, `MappingWarning`
-- Type string parser (`type_parser.rs`) — recursive descent parser for Rust type strings
-  - Handles primitives, `Vec`, `Option`, `Result`, `HashMap`, `HashSet`, `Box`, `Arc`, `Rc`, `Cow`
-  - Handles references (`&T`, `&mut T`, `&'a T`, `&'a mut T`)
-  - Handles tuples, slices, arrays, fn pointers
-  - Handles `dyn Trait`, `impl Trait` — emit warnings and `ManualStub`
-  - Handles lifetimes — emit warnings
-  - Handles generic parameters — emit warnings
-  - Falls back to `PyClass`/`PyEnum` for named types
-- Main mapper (`mapper.rs`) — walks IR items and produces annotated IR
-  - Functions: maps inputs/outputs, detects unsafe/async/generics
-  - Structs: maps fields, detects lifetimes/generics
-  - Enums: maps variants, detects C-like vs data enums
-  - Traits: informational only, `ManualStub`
-  - Impl blocks: maps methods
-- CLI integration: `vertumnus map <ir.json>` command works end-to-end
-- CLI integration: `wrap` command chains inspector → mapper
-- `--verbose` flag on `map` shows per-item warnings
-- `--dry-run` on `wrap` outputs annotated IR
-- Schema: `schemas/annotated_ir.schema.json` v0.1
-- 47 unit tests in the mapper crate (all passing)
-
-**Type mapping coverage:**
-| Rust → Python | Status |
-|---|---|
-| i8-i128, u8-u128 → int | ✅ |
-| f32, f64 → float | ✅ |
-| bool → bool | ✅ |
-| String, &str → str | ✅ |
-| Vec<T> → list[T] | ✅ |
-| HashMap<K,V> → dict[K,V] | ✅ |
-| Option<T> → T \| None | ✅ |
-| Result<T,E> → T (MapErr) | ✅ |
-| struct Foo → Foo (pyclass) | ✅ |
-| enum Foo → Foo (pyenum) | ✅ |
-| (A,B) → tuple[A,B] | ✅ |
-| &[T] → list[T] | ✅ |
-| [T; N] → list[T] | ✅ (warns) |
-| fn(...) → Callable | ✅ |
-| &T → T (unwrap) | ✅ |
-| dyn Trait → Any (stub) | ✅ |
-| impl Trait → Any (stub) | ✅ |
-| Lifetimes → warn + stub | ✅ |
-| Generic params → warn + stub | ✅ |
-| Raw pointers → Any (stub) | ✅ |
-
-**Key files (new/updated):**
-```
-crates/vertumnus-mapper/src/
-  annotated_ir.rs        # Annotated IR types (NEW)
-  type_parser.rs         # Type string parser (NEW)  
-  mapper.rs              # Main mapper logic (NEW)
-  lib.rs                 # Updated exports
-crates/vertumnus-cli/src/
-  main.rs                # Updated: map + wrap commands use mapper
-schemas/
-  annotated_ir.schema.json  # Annotated IR schema (NEW)
-```
-
-
-### M3 (Binding Generator) ✅ COMPLETE
-
-```
-Branch: main (not yet committed)
-```
-
-**What was built:**
-- `crates/vertumnus-generator/` — new workspace member
-- `generator.rs` — `Generator` struct orchestrating code generation
-  - `generate_rust_code()` — produces complete `src/lib.rs` with module-level item definitions + `#[pymodule]` registration
-  - `collect_methods_by_type()` — groups `impl` block methods by their parent type
-  - `get_crate_doc()` — extracts crate-level doc from first item
-  - Skips registering `ManualStub` items (lifetime/generic warnings)
-- `codegen.rs` — Rust/PyO3 code generation for each item kind:
-  - `generate_function_wrapper()` — `#[pyfunction]` with `PyResult` for fallible, `Option<T>` for nullable, `Ok(...)` wrapper for infallible
-  - `generate_struct_wrapper()` — `#[pyclass]` with `inner: _crate::Name` delegation, field getters, method generation. Skips generic parameter fields with `// VERTUMNUS:` comment.
-  - `generate_enum_wrapper()` — C-like enums as `#[pyclass] #[derive(Clone)]`, method dispatch via `_crate::Enum::method(self)`. Data-carrying variants get `ManualStub`.
-  - `generate_method_wrapper()` — handles `self`/`&self`/`&mut self` receivers, delegates to original impl
-  - `generate_trait_stub()` — informational `todo!()` stub
-  - `ir_type_to_pyo3_type()` — maps type strings to PyO3 return types (`PyResult<T>` for `Result`, `Option<T>` for `Option`, `Bound<'_, PyAny>` for generics)
-  - `is_generic_field()` — detects bare generic param field types
-- `stubs.rs` — Python `.pyi` and `__init__.py` generation:
-  - `generate_pyi()` — full type stub file with `class`, `def`, `IntEnum` for enums
-  - `generate_init_py()` — re-exports from native module
-  - `ir_type_to_python_type()` — maps to Python type annotation syntax
-  - `partition_map_by_kind()` — separates functions, structs, enums, traits for ordered stub output
-  - `is_exportable()` — filters `ManualStub` from `__init__.py` exports (except top-level free functions)
-- `lib.rs` — public exports: `Generator`, `GeneratorConfig`, `generate()` convenience fn
-- CLI integration: `generate` and `wrap` subcommands invoke generator, write `src/lib.rs`, `<pkg>.pyi`, `python/<pkg>/__init__.py`
-- Fixes applied during e2e testing:
-  - `MapErr` strategy propagated from return type to function level (mapper fix)
-  - Doc comment formatting (space after `///`)
-  - Enum method dispatch (`_crate::Enum::method(self)` not `self.inner.method(...)`)
-  - `#[pyfunction]`/`#[pyclass]` definitions at **module level**, not inside `#[pymodule]` fn body
-  - `ManualStub` items excluded from `m.add_class::<...>()` registration
-  - Generic field getters skipped with `// VERTUMNUS:` comment
-- 28 unit tests (all passing), e2e test with `simple-math` fixture produces valid output
-
-**Key files:**
-```
-crates/vertumnus-generator/src/
-  generator.rs        # Main Generator struct, orchestration (NEW)
-  codegen.rs          # Rust/PyO3 code generation ~1193 lines (NEW)
-  stubs.rs            # Python .pyi + __init__.py generation (NEW)
-  lib.rs              # Public API exports (NEW)
-crates/vertumnus-cli/src/
-  main.rs             # Updated: generate + wrap commands call generator
-```
-
-**Type coverage in generated code:**
-| Rust → PyO3 | Status |
+### Sprint 5 — In Progress
+| Item | Status | Notes |
 |---|---|---|
-| Free functions → `#[pyfunction]` | ✅ |
-| Infallible → `Ok(val)` | ✅ |
-| `Result<T,E>` → `PyResult<T>` + `.map_err(PyRuntimeError)` | ✅ |
-| `Option<T>` → `Option<T>` return | ✅ |
-| Struct `Foo` → `#[pyclass]` + `inner: _crate::Foo` + getters | ✅ |
-| Struct methods → `#[pymethods]` impl | ✅ |
-| C-like enum → `#[pyclass] #[derive(Clone)]` | ✅ |
-| Enum methods → `_crate::Enum::method(self)` | ✅ |
-| Data-carrying enum → ManualStub with warning | ✅ |
-| Lifetime/Generic struct → ManualStub | ✅ |
-| Trait → `todo!()` stub | ✅ |
+| D2 — Batch wrapping | ✅ Complete | `vertumnus batch wrap` subcommand |
+| B2 — User monomorphization hints | ✅ Complete | Config-file monomorphization |
+| B3 — Generic type parameter erasure | ✅ Complete | PhantomData<T> erased, PyClass generated |
+| C3 — Streaming IR for huge crates | ⏭️ Next | Not yet started |
+| E3 — Cross-crate workspace wrapping | ❌ Not started | |
+| E4 — Plugin system | ❌ Not started | |
 
-### M4 (Builder + CLI) ✅ COMPLETE
+## Current Test Counts
 
-```
-Branch: main (not yet committed)
-```
+| Crate | Tests |
+|---|---|
+| `vertumnus-builder` | ~10 unit |
+| `vertumnus-cli` | ~28 integration |
+| `vertumnus-generator` | ~30 unit |
+| `vertumnus-inspector` | ~28 unit |
+| `vertumnus-mapper` | ~104 unit |
+| Doc-tests | ~5 |
+| **Total** | **~214** |
 
-**What was built:**
-- `crates/vertumnus-builder/` — new workspace member with 8 unit tests
-- `builder/lib.rs` — Builder orchestration:
-  - `generate_pyproject_toml()` — produces `pyproject.toml` with maturin build config, `module-name = "{pkg}._core"`
-  - `generate_cargo_toml()` — produces `Cargo.toml` with pyo3 0.22, path dep to original crate, `[lib] name = "_core"`, `crate-type = ["cdylib"]`
-  - `scaffold_all()` — writes both pyproject.toml and Cargo.toml to output directory
-  - `run_maturin_build()` — invokes `maturin build --release`, returns path to built `.whl`
-  - `run_maturin_develop()` — invokes `maturin develop` for local development
-  - `read_crate_name()` — parses crate name from original `Cargo.toml` (preserves hyphens)
-- CLI `wrap` command extended to invoke builder after successful generation:
-  1. Inspector (rustdoc JSON → IR)
-  2. Type Mapper (IR → annotated IR)
-  3. Binding Generator (annotated IR → Rust + stubs)
-  4. Builder (scaffold pyproject.toml + Cargo.toml → run `maturin build --release`)
-- Codegen fixes for M4 compatibility:
-  - Added `native_module_name` field to `GeneratorConfig` (default `"_core"`)
-  - `#[pymodule]` function name → `fn _core(...)` (not `fn package_name(...)`)
-  - `__init__.py` imports from `._core` (not `.package_name`)
-  - `ir_type_to_pyo3_type("str")` returns `"str"` (not `"&str"` which caused `&&str`)
-  - Field getters clone non-Copy types (String, etc.)
-  - Default `derive_debug = false` — guarantees compatibility without Debug bound
-
-**E2E Test Results (both fixtures pass):**
-- `simple-math` fixture functions: `add`, `div`, `magnitude`, `factorial_loop`, `safe_div`
-- `simple-math` struct: `Point` (x, y, z fields + `distance()` method)
-- `simple-math` enum: `Direction` (North, South variants + `offset()` method)
-- `string-utils` fixture functions: `reverse`, `word_count`, `is_palindrome`, `truncate`
-- `string-utils` struct: `TextProcessor` (prefix, uppercase fields + `process()`, `greet()` methods)
-- `string-utils` enum: `ProcessStatus` (Success, Failure variants + `is_ok()` method)
-- Errors: `safe_div(1,0)` raises `RuntimeError` ✅
-- Warnings: Lifetimes (`&'static str`) → emitted but elided for Python binding ✅
-- Total tests: 93 passing (8 builder + 28 generator + 47 mapper + 2 inspector + ...)
-
-**Key files (new/updated):**
-```
-crates/vertumnus-builder/
-  Cargo.toml             # deps: serde, serde_json, thiserror, anyhow
-  src/lib.rs             # Builder: scaffold + maturin invocation (440+ lines, 8 tests)
-crates/vertumnus-generator/src/
-  generator.rs           # GeneratorConfig.native_module_name field added
-  codegen.rs             # ir_type_to_pyo3_type fix, is_copy_type, field clone
-  stubs.rs               # generate_init_py uses native_module_name
-tests/fixtures/string-utils/   # Second test fixture (NEW)
-```
-
-### M5 (Polish) ✅ COMPLETE
-
-```
-Branch: main (not yet committed)
-```
+## B3 — Generic Type Parameter Erasure Details
 
 **What was built:**
+- `generic_params: Vec<String>` added to `StructItem`, `EnumItem`, `FunctionItem` in IR + schema
+- Both rustdoc JSON and `syn` parsers extract generic parameter names
+- PhantomData fields detected and filtered from Python-visible field mappings
+- `are_generics_erasure_safe()` checks if all generic params only appear in PhantomData fields
+- Erasure-safe structs get `PyClass` instead of `ManualStub`; non-erased still produce `ManualStub`
+- Erased generics filled with `()` in inner type reference (e.g., `_crate::Marker<()>`)
+- `PhantomData<T>` type maps to `None`/Native silently in type parser
+- Fixture crate `tests/fixtures/phantom-markers/` with 5 test types
+- 3 new integration tests: inspect IR, map erasure detection, wrap pipeline
+- Closes #XX: generic marker/phantom types now generate Python bindings
 
-**CI Workflow Template Generation:**
-- `.github/workflows/ci.yml` — GitHub Actions CI for Vertumnus itself (test on linux/macos/windows, stable/nightly, clippy, fmt, e2e)
-- `generate_ci_workflow()` — builder function to scaffold `build.yml` for wrapped packages (matrix build linux/macos/windows, Python 3.8–3.12, PyPI publish on tags)
-- `scaffold_ci()` — writes CI workflow to `.github/workflows/build.yml` in output directory
-- 2 new tests for CI generation (10 builder tests total)
+## Key Files
 
-**Documentation (`docs/`):**
-- `docs/architecture.md` — Full architecture overview with pipeline flow diagram, component descriptions, data flow, workspace layout, tech stack
-- `docs/type-mapping.md` — Complete type mapping table with PyO3 strategy descriptions, edge cases, warning catalog, and unsupported patterns
-- `docs/limitations.md` — Documented limitations for 10 categories (lifetimes, async, dyn Trait, generics, data enums, unsafe, circular refs, modules, associated items) with workarounds
-
-**Third Fixture Crate (`data-structures`):**
-- Exercises collection types: `Vec<T>`, `HashMap<K,V>`, `HashSet<T>`
-- Exercises tuples: `(i64, i64)`, `(String, i64)` pairs, unzip
-- Exercises nested generics: `Option<(i64, i64)>`, `Vec<Option<i64>>`
-- Exercises `Result<T, E>` with data-carrying error enum (`ValidationError`)
-- Contains structs with `Vec` / `HashMap` fields (DataStore, Counter)
-- Contains C-like enum (Color) and mixed enum (OpStatus with data variant)
-- Automatically compiles and is verified in integration tests
-
-**Integration Test Suite (15 tests):**
-- `crates/vertumnus-cli/tests/integration_tests.rs` — Rust integration tests running `vertumnus` binary via `Command`
-- Tests for `inspect` on all 3 fixtures (validates IR JSON structure, item names)
-- Tests for `map` on fixture IR (validates annotated IR with mapping info)
-- Tests for `generate` (validates output files exist: lib.rs, .pyi, __init__.py)
-- Tests for `wrap --dry-run` (validates annotated IR output, no files created)
-- Tests for `wrap --no-build` (validates all generated + scaffolded files exist)
-- Tests for `wrap --verbose` (validates verbose stderr output)
-- Tests for `wrap` full pipeline with maturin (validates .whl produced)
-- Edge case tests: nonexistent crate path, invalid JSON input
-- All 15 integration tests pass
-
-**CLI fixes:**
-- `--no-build` now scaffolds build config (pyproject.toml, Cargo.toml) but skips `maturin build`
-- Binary renamed from `vertumnus-cli` to `vertumnus` (via `[[bin]]` in Cargo.toml)
-
-**Code quality:**
-- Zero clippy warnings across workspace
-- 113 unit tests + 3 doc-tests = 116 total, all passing
-- Clean `cargo check` with no warnings
-
-**Total test count:**
-- `vertumnus-builder`: 10 unit + 1 doc = 11
-- `vertumnus-cli`: 15 integration
-- `vertumnus-generator`: 28 unit + 1 doc = 29
-- `vertumnus-inspector`: 12 unit + 1 doc = 13
-- `vertumnus-mapper`: 47 unit + 1 doc = 48
-- **Grand total: 116 tests** (all passing)
-
-**Key files (new/updated):**
 ```
-.github/workflows/ci.yml                              # Vertumnus CI (NEW)
-crates/vertumnus-builder/src/lib.rs                   # CI workflow generation (UPDATED)
-crates/vertumnus-cli/src/main.rs                      # --no-build fix, binary name (UPDATED)
-crates/vertumnus-cli/Cargo.toml                       # [[bin]] name, dev-deps (UPDATED)
-crates/vertumnus-cli/tests/integration_tests.rs       # 15 integration tests (NEW)
-tests/fixtures/data-structures/                       # Third test fixture (NEW)
-docs/architecture.md                                  # Architecture docs (NEW)
-docs/type-mapping.md                                  # Type mapping reference (NEW)
-docs/limitations.md                                   # Known limitations (NEW)
+crates/vertumnus-inspector/src/ir.rs         # IR types with generic_params
+crates/vertumnus-inspector/src/inspector.rs  # rustdoc JSON parser (generic param extraction)
+crates/vertumnus-inspector/src/syn_parser.rs # syn fallback parser (generic param extraction)
+crates/vertumnus-mapper/src/mapper.rs        # map_struct: PhantomData filtering, erasure detection
+crates/vertumnus-mapper/src/type_parser.rs   # PhantomData → Native mapping
+crates/vertumnus-generator/src/codegen.rs    # is_phantom_data_type, erased inner type refs
+schemas/ir.schema.json                       # +generic_params array
+tests/fixtures/phantom-markers/              # B3 fixture crate
 ```
 
----
+## Known Conventions
 
-## Scaling Plan (`.opencode/plan.md`)
+### Error Handling
+- Library crates use `thiserror` for error types. No `unwrap()` in library code.
+- The CLI binary (`vertumnus-cli`) uses `anyhow` for top-level error propagation.
+- `Result` return types carry specific error enums, never bare `String` errors.
 
-A forward-looking roadmap was created on 2026-06-15. Sprint progress:
+### Serialization
+- `serde` with `#[derive(Serialize, Deserialize)]` on all IR types.
+- JSON field naming: `#[serde(rename_all = "snake_case")]`.
+- Optional fields: `#[serde(default)]` with `#[serde(skip_serializing_if = "Vec::is_empty")]`.
 
-- **Sprint 1** ✅ A1 (Config file type mappings) + C1 (Parallel pipeline)
-- **Sprint 2** ✅ A2 (syn fallback) + B1 (Auto-detect monomorphization) + C2 (Incremental cache)
-- **Sprint 3** 🏗️ A3 (Dependency-aware type resolution) ✅ — Next: D1 (Community type registry)
-- **Sprint 4** 🕐 E1 (Async), E2 (Data-carrying enums)
-- **Sprint 5** 🕐 D2, E3, B2, B3, C3, E4
+### Project Layout
+- Cargo workspace at root with `resolver = "2"`.
+- Each pipeline phase is a separate crate under `crates/`: `vertumnus-{inspector,mapper,generator,builder,cli}`.
+- Test fixtures live in `tests/fixtures/` and are excluded from the workspace.
 
-**Sprint 3 — A3 (Dependency-aware type resolution):**
-- New module `dependency_resolver.rs` — parses `Cargo.lock`, identifies dependency crate names
-- `extract_crate_name()` — extracts first `::` segment from fully-qualified types (e.g., `url::Url` → `url`)
-- `load_cargo_lock()` — reads Cargo.lock, builds lookup table (case-insensitive)
-- `format_dependency_warning()` — user-friendly message suggesting `.vertumnus/config.toml` mapping
-- `map_type_with_full_context()` — new public function extending `map_type_with_config` with dep info
-- `map_ir_with_full_context()` — new public function extending `map_ir_with_config` with crate path
-- CLI `wrap` command passes crate path → mapper loads Cargo.lock automatically
-- Dependency types fall back to `Bound<'_, PyAny>` (ManualStub) with helpful warning
-- Config registry takes priority over dependency fallback
-- `std`/`core`/`alloc` excluded from dependency detection
-- 17 new tests (12 dependency_resolver + 5 type_parser dep-aware)
+### Testing
+- Unit tests live in the same file as the code they test, gated by `#[cfg(test)] mod tests`.
+- Run `cargo test` and `cargo check` after every significant change.
+- Aim for zero clippy warnings.
+- Integration tests run the `vertumnus` binary via `Command`.
+
+### Code Style
+- Rust edition 2021.
+- Doc comments (`///`) on all public items.
+- `clap` derive API for CLI argument parsing.
+- Avoid `unsafe` in library and generated code.
+- Keep generated code readable and idiomatic.
 
 ---
 

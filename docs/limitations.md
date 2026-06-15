@@ -45,13 +45,16 @@ pub fn greet(name: &str) -> String {
 
 **Workaround:** Manually define the expected Python type in a custom binding.
 
-### 4. Generic Functions (Un-monomorphized)
+### 4. Generic Functions and Structs
 
-**Problem:** A function like `fn foo<T: Display>(x: T) -> String` cannot be called from Python without knowing the concrete type.
+**Problem:** A function like `fn foo<T: Display>(x: T) -> String` cannot be called from Python without knowing the concrete type. Generic structs with real generic fields (e.g., `struct Container<T> { value: T }`) also can't be bound.
 
-**Behavior:** The item is flagged with a warning and generated as a stub.
+**Behavior:** 
+- Functions with un-monomorphized generic parameters are flagged and generated as stubs.
+- Structs with generics in real fields get a `ManualStub`.
+- **Exception:** Structs where generic parameters only appear in `PhantomData<T>` fields are **erasure-safe** — the generic is erased (filled with `()`) and a working `#[pyclass]` wrapper is generated.
 
-**Workaround:** Either monomorphize manually for expected types or expose concrete wrapper functions.
+**Workaround:** For non-erased generics, either monomorphize manually for expected types or expose concrete wrapper functions.
 
 ### 5. Data-Carrying Enums
 
@@ -121,6 +124,7 @@ The following patterns work reliably in v1:
 - **Fallible functions** returning `Result<T, E>` — mapped to Python exceptions
 - **Nested generics** like `Option<Vec<String>>` or `Result<i64, MyError>`
 - **Doc comments** — preserved as Python docstrings
+- **PhantomData erasure** — marker types like `struct Status<T>(PhantomData<T>)` generate working Python classes automatically
 
 ## Reporting Issues
 
