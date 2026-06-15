@@ -4,6 +4,7 @@
 //! It takes an [`IntermediateRepresentation`] and produces an [`AnnotatedIr`]
 //! by mapping every type in every item to its Python equivalent.
 
+use rayon::prelude::*;
 use vertumnus_inspector::ir::{
     EnumItem, FunctionItem, ImplItem, IntermediateRepresentation, IrItem, StructItem, TraitItem,
 };
@@ -44,10 +45,12 @@ pub fn map_ir_with_config(
 ) -> Result<AnnotatedIr, MapError> {
     let mut annotated = AnnotatedIr::new(ir.crate_name.clone(), ir.crate_version.clone());
 
-    for item in &ir.items {
-        let annotated_item = map_item(item, config);
-        annotated.items.push(annotated_item);
-    }
+    // Map items in parallel — each item is independent
+    annotated.items = ir
+        .items
+        .par_iter()
+        .map(|item| map_item(item, config))
+        .collect();
 
     Ok(annotated)
 }

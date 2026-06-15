@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 vertumnus-inspector.workspace = true
 vertumnus-mapper.workspace = true
+rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

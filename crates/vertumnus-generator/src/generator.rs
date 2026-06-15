@@ -9,6 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use rayon::prelude::*;
 use vertumnus_inspector::ir::{FunctionItem, IrItem};
 use vertumnus_mapper::annotated_ir::{AnnotatedIr, PyO3Strategy};
 
@@ -68,6 +69,14 @@ pub enum GenError {
     SerdeError(#[from] serde_json::Error),
 }
 
+/// Result of processing a single item for Rust code generation (used in parallel).
+struct ItemCodegenResult {
+    code: String,
+    fn_registration: Option<String>,
+    class_registration: Option<String>,
+    enum_registration: Option<String>,
+}
+
 /// The main generator — converts an [`AnnotatedIr`] into [`GeneratedFiles`].
 pub struct Generator {
     /// The annotated intermediate representation
@@ -102,7 +111,7 @@ impl Generator {
             self.config.package_name.clone()
         };
 
-        // Collect methods grouped by their parent type
+        // Collect methods grouped by their parent type (sequential — shared state)
         let methods_by_type = self.collect_methods_by_type();
 
         // Generate Rust glue code
@@ -197,7 +206,7 @@ impl Generator {
             self.annotated.crate_name
         ));
 
-        // Build sets of wrapper type names
+        // Build sets of wrapper type names (sequential for simplicity — cheap ops)
         let struct_wrappers: HashSet<String> = self
             .annotated
             .items
@@ -226,73 +235,107 @@ impl Generator {
             .collect();
 
         // Combined set for backward compatibility
-        let mut wrapper_types: HashSet<String> = struct_wrappers.clone();
-        wrapper_types.extend(enum_wrappers.iter().cloned());
+        let wrapper_types: HashSet<String> = struct_wrappers
+            .union(&enum_wrappers)
+            .cloned()
+            .collect();
 
         // ===================================================================
         // MODULE LEVEL: Item definitions (functions, structs, enums)
+        // Process items in parallel — each item is independent.
         // ===================================================================
 
+        let results: Vec<ItemCodegenResult> = self
+            .annotated
+            .items
+            .par_iter()
+            .map(|item| {
+                let code = match &item.original {
+                    IrItem::Function(func_item) => {
+                        codegen::generate_function_wrapper(
+                            func_item,
+                            &item.mapping,
+                            &wrapper_types,
+                        )
+                    }
+                    IrItem::Struct(struct_item) => {
+                        let methods = methods_by_type
+                            .get(&struct_item.name)
+                            .map(|v| v.as_slice())
+                            .unwrap_or(&[]);
+                        codegen::generate_struct_wrapper(
+                            struct_item,
+                            methods,
+                            &item.mapping,
+                            self.config.derive_debug,
+                            self.config.derive_eq,
+                            &wrapper_types,
+                            &enum_wrappers,
+                        )
+                    }
+                    IrItem::Enum(enum_item) => {
+                        let methods = methods_by_type
+                            .get(&enum_item.name)
+                            .map(|v| v.as_slice())
+                            .unwrap_or(&[]);
+                        codegen::generate_enum_wrapper(
+                            enum_item,
+                            methods,
+                            &item.mapping,
+                            &wrapper_types,
+                        )
+                    }
+                    IrItem::Trait(trait_item) => codegen::generate_trait_stub(trait_item),
+                    IrItem::Impl(_) => String::new(), // handled via methods_by_type
+                };
+
+                let (fn_reg, class_reg, enum_reg) = match &item.original {
+                    IrItem::Function(func_item) => {
+                        (Some(func_item.name.clone()), None, None)
+                    }
+                    IrItem::Struct(struct_item) => {
+                        let class_reg = if item.mapping.pyo3_strategy != PyO3Strategy::ManualStub {
+                            Some(struct_item.name.clone())
+                        } else {
+                            None
+                        };
+                        (None, class_reg, None)
+                    }
+                    IrItem::Enum(enum_item) => {
+                        let enum_reg = if item.mapping.pyo3_strategy != PyO3Strategy::ManualStub {
+                            Some(enum_item.name.clone())
+                        } else {
+                            None
+                        };
+                        (None, None, enum_reg)
+                    }
+                    _ => (None, None, None),
+                };
+
+                ItemCodegenResult {
+                    code,
+                    fn_registration: fn_reg,
+                    class_registration: class_reg,
+                    enum_registration: enum_reg,
+                }
+            })
+            .collect();
+
+        // Merge results in original order (sequential — cheap)
         let mut fn_registrations = Vec::new();
         let mut class_registrations = Vec::new();
         let mut enum_registrations = Vec::new();
 
-        for item in &self.annotated.items {
-            match &item.original {
-                IrItem::Function(func_item) => {
-                    let fn_code = codegen::generate_function_wrapper(
-                        func_item,
-                        &item.mapping,
-                        &wrapper_types,
-                    );
-                    code.push_str(&fn_code);
-                    fn_registrations.push(func_item.name.clone());
-                }
-                IrItem::Struct(struct_item) => {
-                    let methods = methods_by_type
-                        .get(&struct_item.name)
-                        .map(|v| v.as_slice())
-                        .unwrap_or(&[]);
-                    let struct_code = codegen::generate_struct_wrapper(
-                        struct_item,
-                        methods,
-                        &item.mapping,
-                        self.config.derive_debug,
-                        self.config.derive_eq,
-                        &wrapper_types,
-                        &enum_wrappers,
-                    );
-                    code.push_str(&struct_code);
-                    // Only register if not a manual stub
-                    if item.mapping.pyo3_strategy != PyO3Strategy::ManualStub {
-                        class_registrations.push(struct_item.name.clone());
-                    }
-                }
-                IrItem::Enum(enum_item) => {
-                    let methods = methods_by_type
-                        .get(&enum_item.name)
-                        .map(|v| v.as_slice())
-                        .unwrap_or(&[]);
-                    let enum_code = codegen::generate_enum_wrapper(
-                        enum_item,
-                        methods,
-                        &item.mapping,
-                        &wrapper_types,
-                    );
-                    code.push_str(&enum_code);
-                    // Only register if not a manual stub
-                    if item.mapping.pyo3_strategy != PyO3Strategy::ManualStub {
-                        enum_registrations.push(enum_item.name.clone());
-                    }
-                }
-                IrItem::Trait(trait_item) => {
-                    let stub = codegen::generate_trait_stub(trait_item);
-                    code.push_str(&stub);
-                }
-                IrItem::Impl(_) => {
-                    // Impl block methods are already handled via methods_by_type
-                    // No separate registration needed
-                }
+        for result in results {
+            code.push_str(&result.code);
+            if let Some(name) = result.fn_registration {
+                fn_registrations.push(name);
+            }
+            if let Some(name) = result.class_registration {
+                class_registrations.push(name);
+            }
+            if let Some(name) = result.enum_registration {
+                enum_registrations.push(name);
             }
         }
 
