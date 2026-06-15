@@ -1067,3 +1067,110 @@ fn test_batch_wrap_rejects_duplicate_output() {
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }
+
+// ---------------------------------------------------------------------------
+// Phantom marker / generic erasure tests (B3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_inspect_phantom_markers_generic_params() {
+    let workspace = workspace_root();
+    let fixture = workspace.join("tests/fixtures/phantom-markers");
+    let out_dir = temp_out_dir("inspect-phantom");
+    let ir_file = out_dir.join("ir.json");
+
+    // Inspect the fixture and dump IR to file
+    let (_stdout, stderr, status) = run_vertumnus(&[
+        "inspect",
+        fixture.to_str().unwrap(),
+        "--output",
+        ir_file.to_str().unwrap(),
+    ]);
+    assert!(status.success(), "inspect failed: {}", stderr);
+    assert!(ir_file.exists(), "IR file not found at {:?}", ir_file);
+
+    let ir_content = std::fs::read_to_string(&ir_file).expect("read IR file");
+
+    // Verify generic_params are present for Marker<T>, Container<T>, etc.
+    assert!(ir_content.contains("\"generic_params\""), "IR should contain generic_params fields");
+    assert!(
+        ir_content.contains(r#""generic_params":["#) || ir_content.contains(r#""generic_params": ["#),
+        "IR should have generic_params array for some items"
+    );
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn test_map_phantom_markers_erasure_detection() {
+    let workspace = workspace_root();
+    let fixture = workspace.join("tests/fixtures/phantom-markers");
+    let out_dir = temp_out_dir("map-phantom");
+    let ir_file = out_dir.join("ir.json");
+    let annotated_file = out_dir.join("annotated.json");
+
+    // First inspect to file
+    let (_, _, status) = run_vertumnus(&[
+        "inspect",
+        fixture.to_str().unwrap(),
+        "--output",
+        ir_file.to_str().unwrap(),
+    ]);
+    assert!(status.success());
+
+    // Then map from file to output file
+    let (_stdout, stderr, status) = run_vertumnus(&[
+        "map",
+        ir_file.to_str().unwrap(),
+        "--output",
+        annotated_file.to_str().unwrap(),
+    ]);
+    assert!(status.success(), "map failed: {}", stderr);
+    assert!(annotated_file.exists(), "annotated IR not found at {:?}", annotated_file);
+
+    let annotated_content = std::fs::read_to_string(&annotated_file).expect("read annotated IR");
+
+    // Marker<T> (PhantomData-only) should have PyClass strategy
+    assert!(annotated_content.contains("PyClass"),
+        "Generated code should have PyClass for erasure-safe structs");
+    // Should also have ManualStub for non-erased generic structs
+    assert!(annotated_content.contains("ManualStub"),
+        "Generated code should have ManualStub for non-erased structs");
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+#[test]
+fn test_wrap_phantom_markers_no_build() {
+    let workspace = workspace_root();
+    let fixture = workspace.join("tests/fixtures/phantom-markers");
+    let out_dir = temp_out_dir("wrap-phantom");
+
+    // Run full wrap pipeline (no build) to verify generation succeeds
+    let (_stdout, stderr, status) = run_vertumnus(&[
+        "wrap",
+        fixture.to_str().unwrap(),
+        "--out",
+        out_dir.to_str().unwrap(),
+        "--no-build",
+        "--overwrite",
+    ]);
+    assert!(status.success(), "wrap failed: {}", stderr);
+
+    // Verify generated lib.rs exists
+    let gen_src = out_dir.join("python").join("phantom_markers").join("src").join("lib.rs");
+    let src_path = if gen_src.exists() { gen_src } else { out_dir.join("src").join("lib.rs") };
+    assert!(src_path.exists(), "Generated lib.rs not found");
+
+    // Verify the generated code contains both PyClass structs and ManualStub stubs
+    let gen_code = std::fs::read_to_string(&src_path).expect("read generated lib.rs");
+
+    // Should have PyClass for Marker<T> (erasure-safe)
+    assert!(gen_code.contains("#[pyclass]"),
+        "Generated code should have pyclass attributes");
+    // Should have ManualStub for Container<T> (not erasure-safe)
+    assert!(gen_code.contains("manual binding required"),
+        "Generated code should have ManualStub for Container<T>");
+
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
