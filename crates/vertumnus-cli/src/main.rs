@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 use clap::{Parser, Subcommand};
 use vertumnus_mapper::config::VertumnusConfig;
 
+mod cache;
+
 /// Transform any Rust crate into a Python package — with minimal manual binding work.
 #[derive(Parser, Debug)]
 #[command(name = "vertumnus", version, about)]
@@ -215,22 +217,67 @@ fn main() -> anyhow::Result<()> {
             verbose,
             overwrite,
         } => {
-            // Phase 1: Inspect
-            if verbose {
-                eprintln!("🔍 Inspecting crate at: {}", path.display());
-            }
+            // Resolve canonical path for caching
+            let canonical_path = path
+                .canonicalize()
+                .map_err(|e| anyhow::anyhow!("Cannot resolve crate path: {e}"))?;
 
-            let ir = vertumnus_inspector::inspect_crate(&path)?;
+            // Initialize cache (best-effort — don't fail if cache dir is unwritable)
+            let cache = cache::Cache::new(&canonical_path).ok();
 
-            // Phase 2: Type mapping
-            if verbose {
-                eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
-            }
+            // Phase 1: Inspect (or load from cache)
+            let ir = if let Some(ref cache) = cache {
+                if let Some(cached_ir) = cache.load_ir() {
+                    if verbose {
+                        eprintln!("🔍 Using cached IR (source unchanged)");
+                    }
+                    cached_ir
+                } else {
+                    if verbose {
+                        eprintln!("🔍 Inspecting crate at: {}", path.display());
+                    }
+                    let ir = vertumnus_inspector::inspect_crate(&path)?;
+                    if let Err(e) = cache.save_ir(&ir) {
+                        if verbose {
+                            eprintln!("  ℹ️  Cache write skipped: {e}");
+                        }
+                    }
+                    ir
+                }
+            } else {
+                if verbose {
+                    eprintln!("🔍 Inspecting crate at: {}", path.display());
+                }
+                vertumnus_inspector::inspect_crate(&path)?
+            };
 
-            // Load optional config for custom type mappings
-            let config = load_config(config.as_deref(), &path)?;
-
-            let annotated = vertumnus_mapper::map_ir_with_config(&ir, config.as_ref())?;
+            // Phase 2: Type mapping (or load from cache)
+            let annotated = if let Some(ref cache) = cache {
+                if let Some(cached_annotated) = cache.load_annotated_ir() {
+                    if verbose {
+                        eprintln!("🗺️  Using cached mapping (source unchanged)");
+                    }
+                    cached_annotated
+                } else {
+                    if verbose {
+                        eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
+                    }
+                    let config = load_config(config.as_deref(), &path)?;
+                    let annotated = vertumnus_mapper::map_ir_with_config(&ir, config.as_ref())?;
+                    if let Err(e) = cache.save_annotated_ir(&annotated) {
+                        if verbose {
+                            eprintln!("  ℹ️  Cache write skipped: {e}");
+                        }
+                    }
+                    annotated
+                }
+            } else {
+                if verbose {
+                    eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
+                }
+                let config = load_config(config.as_deref(), &path)?;
+                vertumnus_mapper::map_ir_with_config(&ir, config.as_ref())?
+            };
 
             if dry_run {
                 // Dry-run: output annotated IR and exit
@@ -319,17 +366,13 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("🏗️  Scaffolding build configuration...");
             }
 
-            let canonical_path = path
-                .canonicalize()
-                .map_err(|e| anyhow::anyhow!("Cannot resolve crate path: {e}"))?;
-
             // Read the actual crate name from Cargo.toml (preserves hyphens)
             let original_crate_name = vertumnus_builder::read_crate_name(&canonical_path)
                 .unwrap_or_else(|_| ir.crate_name.clone());
 
             let builder_config = vertumnus_builder::BuilderConfig {
                 output_dir: out_path.clone(),
-                crate_path: canonical_path,
+                crate_path: canonical_path.clone(),
                 package_name: package_name_safe.clone(),
                 crate_name: original_crate_name,
                 crate_version: ir.crate_version.clone(),

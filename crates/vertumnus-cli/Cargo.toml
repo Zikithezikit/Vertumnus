@@ -18,6 +18,8 @@ vertumnus-builder.workspace = true
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 serde_json = "1"
+sha2 = "0.10"
+walkdir = "2"
 
 [dev-dependencies]
 serde_json = "1"

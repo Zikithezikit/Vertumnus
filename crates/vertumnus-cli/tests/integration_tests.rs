@@ -526,12 +526,12 @@ fn test_wrap_verbose_simple_math() {
     assert!(status.success(), "wrap --verbose failed: {}", stderr);
     // Verbose output goes to stderr
     assert!(
-        stderr.contains("Inspecting"),
-        "verbose should mention inspecting"
+        stderr.contains("Inspecting") || stderr.contains("cached IR"),
+        "verbose should mention inspecting or cached IR"
     );
     assert!(
-        stderr.contains("type mapper"),
-        "verbose should mention type mapper"
+        stderr.contains("type mapper") || stderr.contains("cached mapping"),
+        "verbose should mention type mapper or cached mapping"
     );
     assert!(
         stderr.contains("bindings"),
