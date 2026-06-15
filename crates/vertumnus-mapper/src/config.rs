@@ -4,6 +4,9 @@
 //! users to teach Vertumnus about ecosystem types (e.g., `bytes::Bytes`,
 //! `url::Url`, `std::time::Duration`) without modifying source code.
 //!
+//! Also supports user-provided monomorphization hints for generic types
+//! (B2), enabling explicit concrete instantiations.
+//!
 //! # Example
 //!
 //! ```toml
@@ -13,6 +16,10 @@
 //! "std::time::Duration" = { python = "float", strategy = "native" }
 //! "std::path::PathBuf" = { python = "str", strategy = "native" }
 //! "url::Url" = { python = "str", strategy = "native" }
+//!
+//! [monomorphize]
+//! "Container<String>" = { python = "WrappedString", strategy = "pyclass" }
+//! "Container<i64>" = { python = "WrappedInt", strategy = "pyclass" }
 //! ```
 
 use std::collections::HashMap;
@@ -29,6 +36,13 @@ pub struct VertumnusConfig {
     /// User-defined type mappings from Rust type strings to Python equivalents.
     #[serde(default)]
     pub type_mappings: HashMap<String, TypeMappingEntry>,
+
+    /// User-provided monomorphization hints (B2).
+    ///
+    /// Keys are concrete generic type instantiations like `"Container<String>"`,
+    /// values specify the Python class name and PyO3 strategy.
+    #[serde(default)]
+    pub monomorphize: HashMap<String, MonomorphizeEntry>,
 }
 
 /// A single type mapping entry in the config file.
@@ -38,6 +52,16 @@ pub struct TypeMappingEntry {
     /// The Python type string (e.g., "bytes", "float", "str")
     pub python: String,
     /// The PyO3 strategy to use: "native", "pyclass", "pyenum", "maperr", "manual"
+    pub strategy: String,
+}
+
+/// A user-provided monomorphization hint.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct MonomorphizeEntry {
+    /// The Python class name for the concrete wrapper (e.g., "WrappedString")
+    pub python: String,
+    /// The PyO3 strategy: "pyclass" for structs, "pyenum" for enums
     pub strategy: String,
 }
 
@@ -84,6 +108,29 @@ impl VertumnusConfig {
             }
         }
         None
+    }
+
+    /// Parse a monomorphization key like `"Container<String>"` into the base type
+    /// name and type arguments.
+    ///
+    /// Returns `None` if the key doesn't contain `<...>`.
+    pub fn parse_monomorphize_key(key: &str) -> Option<(&str, Vec<&str>)> {
+        let open = key.find('<')?;
+        let close = key.rfind('>')?;
+        if open >= close {
+            return None;
+        }
+        let base = &key[..open];
+        let args_str = &key[open + 1..close];
+        let args: Vec<&str> = args_str
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if args.is_empty() {
+            return None;
+        }
+        Some((base, args))
     }
 
     /// Convert the strategy string from the config to a [`PyO3Strategy`].
@@ -214,8 +261,50 @@ mod tests {
         assert_eq!(config.type_mappings.len(), 1);
     }
 
-    #[test]
-    fn test_invalid_toml_returns_error() {
+#[test]
+fn test_parse_monomorphize_key_simple() {
+    let (base, args) = VertumnusConfig::parse_monomorphize_key("Container<String>").unwrap();
+    assert_eq!(base, "Container");
+    assert_eq!(args, vec!["String"]);
+}
+
+#[test]
+fn test_parse_monomorphize_key_multi_args() {
+    let (base, args) = VertumnusConfig::parse_monomorphize_key("Container<String, i64>").unwrap();
+    assert_eq!(base, "Container");
+    assert_eq!(args, vec!["String", "i64"]);
+}
+
+#[test]
+fn test_parse_monomorphize_key_no_generics() {
+    assert!(VertumnusConfig::parse_monomorphize_key("Container").is_none());
+}
+
+#[test]
+fn test_parse_monomorphize_key_empty_angle() {
+    assert!(VertumnusConfig::parse_monomorphize_key("Container<>").is_none());
+}
+
+#[test]
+fn test_load_config_with_monomorphize() {
+    let content = r#"
+[monomorphize]
+"Container<String>" = { python = "WrappedString", strategy = "pyclass" }
+"Container<i64>" = { python = "WrappedInt", strategy = "pyclass" }
+"Result<Data, MyError>" = { python = "Data", strategy = "maperr" }
+"#;
+    let path = write_temp_config(content);
+    let config = VertumnusConfig::from_file(&path).unwrap().unwrap();
+    assert_eq!(config.monomorphize.len(), 3);
+
+    // Check container string
+    let entry = config.monomorphize.get("Container<String>").unwrap();
+    assert_eq!(entry.python, "WrappedString");
+    assert_eq!(entry.strategy, "pyclass");
+}
+
+#[test]
+fn test_invalid_toml_returns_error() {
         let path = write_temp_config("invalid toml content [[[");
         let result = VertumnusConfig::from_file(&path);
         assert!(result.is_err());

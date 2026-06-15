@@ -1282,6 +1282,7 @@ mod tests {
         );
         let config = VertumnusConfig {
             type_mappings: mappings,
+            ..Default::default()
         };
 
         // Named type that's in config should use the configured mapping
@@ -1306,6 +1307,7 @@ mod tests {
         );
         let config = VertumnusConfig {
             type_mappings: mappings,
+            ..Default::default()
         };
 
         // Simple name should match the fully-qualified key
@@ -1329,6 +1331,7 @@ mod tests {
         );
         let config = VertumnusConfig {
             type_mappings: mappings,
+            ..Default::default()
         };
 
         // Inner type in a generic should be resolved via config
@@ -1352,6 +1355,7 @@ mod tests {
         );
         let config = VertumnusConfig {
             type_mappings: mappings,
+            ..Default::default()
         };
 
         // Vec of a configured type
@@ -1375,6 +1379,7 @@ mod tests {
         );
         let config = VertumnusConfig {
             type_mappings: mappings,
+            ..Default::default()
         };
 
         // Types not in config fall back to default behavior
@@ -1398,6 +1403,7 @@ mod tests {
         );
         let config = VertumnusConfig {
             type_mappings: mappings,
+            ..Default::default()
         };
 
         let result = map_type_with_config("UnsupportedType", "test", Some(&config));
@@ -1420,6 +1426,7 @@ mod tests {
         );
         let config = VertumnusConfig {
             type_mappings: mappings,
+            ..Default::default()
         };
 
         // Generic type where the base name is in the config
@@ -1550,6 +1557,7 @@ mod tests {
         );
         let config = VertumnusConfig {
             type_mappings: mappings,
+            ..Default::default()
         };
 
         let mut info = CargoLockInfo::default();
@@ -1588,6 +1596,7 @@ mod tests {
         );
         let config = VertumnusConfig {
             type_mappings: mappings,
+            ..Default::default()
         };
 
         let result = map_type_with_config("AppResult", "test", Some(&config));

@@ -14,7 +14,7 @@ use vertumnus_inspector::ir::{
 use crate::annotated_ir::{AnnotatedIr, AnnotatedItem, MappingWarning, PyO3Strategy, TypeMapping};
 use crate::config::VertumnusConfig;
 use crate::dependency_resolver::{self, CargoLockInfo};
-use crate::monomorphization::detect_and_generate_concrete_wrappers;
+use crate::monomorphization::{detect_and_generate_concrete_wrappers, process_user_monomorphizations};
 use crate::type_parser::{map_type_with_full_context, MappedType};
 
 /// Errors that can occur during type mapping.
@@ -81,11 +81,28 @@ pub fn map_ir_with_full_context(
         .map(|item| map_item(item, config, deps.as_ref()))
         .collect();
 
+    // B2: User-provided monomorphization hints from config — these take
+    // priority over auto-detected ones.
+    let user_wrappers = config
+        .map(|c| process_user_monomorphizations(ir, &c.monomorphize))
+        .unwrap_or_default();
+
+    // Build a set of (base_type, args_string) from user hints to exclude
+    // from auto-detection (B1), so user-provided names take priority.
+    let user_mono_keys: std::collections::HashSet<String> = config
+        .map(|c| c.monomorphize.keys().cloned().collect())
+        .unwrap_or_default();
+
     // B1: Auto-detect monomorphization — generate concrete wrapper items
     // for generic types with concrete usages in the public API.
-    let concrete_wrappers = detect_and_generate_concrete_wrappers(ir);
-    if !concrete_wrappers.is_empty() {
-        annotated.items.extend(concrete_wrappers);
+    // Exclude any that the user has already provided.
+    let concrete_wrappers = detect_and_generate_concrete_wrappers(ir, &user_mono_keys);
+
+    let mut all_wrappers = concrete_wrappers;
+    all_wrappers.extend(user_wrappers);
+
+    if !all_wrappers.is_empty() {
+        annotated.items.extend(all_wrappers);
     }
 
     Ok(annotated)
@@ -854,6 +871,7 @@ mod tests {
         );
         let config = VertumnusConfig {
             type_mappings: mappings,
+            ..Default::default()
         };
 
         let ir = IntermediateRepresentation {

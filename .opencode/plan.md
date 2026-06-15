@@ -2,8 +2,8 @@
 
 > **Goal:** Make Vertumnus work for arbitrary Rust crates dynamically and scalably.
 > **Date:** 2026-06-15
-> **Status:** Active — Sprint 3 (A1 ✅, C1 ✅, A2 ✅, B1 ✅, C2 ✅, A3 ✅)
-> Next: D1 — Community type registry
+> **Status:** Active — Sprint 5 (A1 ✅, C1 ✅, A2 ✅, B1 ✅, C2 ✅, A3 ✅, D1 ✅, E1 ✅, E2 ✅, D2 ✅, B2 ✅)
+> Next: B3 — Generic type parameter erasure
 
 ---
 

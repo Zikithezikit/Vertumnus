@@ -21,8 +21,12 @@ use crate::annotated_ir::{AnnotatedItem, MappingWarning, PyO3Strategy, TypeMappi
 ///
 /// Returns additional `AnnotatedItem`s for each detected concrete instantiation
 /// of a generic type.
+///
+/// `exclude_keys` — a set of `"Container<String>"`-style keys to skip, used
+/// to avoid duplicating user-provided monomorphizations (B2).
 pub fn detect_and_generate_concrete_wrappers(
     ir: &IntermediateRepresentation,
+    exclude_keys: &HashSet<String>,
 ) -> Vec<AnnotatedItem> {
     // Step 1: Collect names of generic types defined in this crate
     let generic_types = collect_generic_types(ir);
@@ -48,6 +52,13 @@ pub fn detect_and_generate_concrete_wrappers(
         };
 
         for args in args_set {
+            // Build the exclusion key (e.g., "Container<String>") to check
+            // against user-provided monomorphization hints (B2)
+            let exclusion_key = format!("{}<{}>", type_name, args.join(", "));
+            if exclude_keys.contains(&exclusion_key) {
+                continue;
+            }
+
             let wrapper_name = generate_concrete_name(type_name, args);
 
             match original {
@@ -94,6 +105,90 @@ pub fn detect_and_generate_concrete_wrappers(
                 }
                 _ => {}
             }
+        }
+    }
+
+    generated
+}
+
+/// Process user-provided monomorphization hints from the config.
+///
+/// This allows users to explicitly specify concrete instantiations
+/// of generic types in `.vertumnus/config.toml`, complementing the
+/// auto-detection in `detect_and_generate_concrete_wrappers`.
+///
+/// Keys are like `"Container<String>"` and values specify the Python
+/// wrapper name and strategy.
+pub fn process_user_monomorphizations(
+    ir: &IntermediateRepresentation,
+    hints: &HashMap<String, crate::config::MonomorphizeEntry>,
+) -> Vec<AnnotatedItem> {
+    if hints.is_empty() {
+        return Vec::new();
+    }
+
+    let mut generated: Vec<AnnotatedItem> = Vec::new();
+
+    for (key, entry) in hints {
+        // Parse the monomorphization key
+        let Some((base_type, args)) = crate::config::VertumnusConfig::parse_monomorphize_key(key)
+        else {
+            // Invalid key — skip with a warning (will be handled by caller)
+            continue;
+        };
+
+        // Find the original generic item in the IR
+        let original_item = ir.items.iter().find(|item| item.name() == base_type);
+        let Some(original) = original_item else {
+            continue;
+        };
+
+        let wrapper_name = &entry.python;
+        let strategy = crate::config::VertumnusConfig::parse_strategy(&entry.strategy);
+        let wrapper_parts: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+
+        match original {
+            IrItem::Struct(s) => {
+                if let Some(wrapper) = generate_concrete_struct(s, base_type, &wrapper_parts, wrapper_name) {
+                    let annotated = AnnotatedItem {
+                        original: IrItem::Struct(wrapper),
+                        mapping: TypeMapping {
+                            python_type: wrapper_name.clone(),
+                            pyo3_strategy: strategy,
+                            warnings: vec![MappingWarning {
+                                message: format!(
+                                    "User-provided concrete wrapper for generic '{}' with args [{}]",
+                                    base_type,
+                                    args.join(", ")
+                                ),
+                                location: wrapper_name.clone(),
+                            }],
+                        },
+                    };
+                    generated.push(annotated);
+                }
+            }
+            IrItem::Enum(e) => {
+                if let Some(wrapper) = generate_concrete_enum(e, base_type, &wrapper_parts, wrapper_name) {
+                    let annotated = AnnotatedItem {
+                        original: IrItem::Enum(wrapper),
+                        mapping: TypeMapping {
+                            python_type: wrapper_name.clone(),
+                            pyo3_strategy: strategy,
+                            warnings: vec![MappingWarning {
+                                message: format!(
+                                    "User-provided concrete wrapper for generic enum '{}' with args [{}]",
+                                    base_type,
+                                    args.join(", ")
+                                ),
+                                location: wrapper_name.clone(),
+                            }],
+                        },
+                    };
+                    generated.push(annotated);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -875,7 +970,7 @@ mod tests {
             visibility: "public".to_string(),
         }));
 
-        let wrappers = detect_and_generate_concrete_wrappers(&ir);
+        let wrappers = detect_and_generate_concrete_wrappers(&ir, &HashSet::new());
         assert_eq!(wrappers.len(), 1);
         assert_eq!(wrappers[0].mapping.python_type, "Container_String");
 
@@ -891,7 +986,7 @@ mod tests {
     #[test]
     fn test_detect_and_generate_no_generics() {
         let ir = make_simple_ir();
-        let wrappers = detect_and_generate_concrete_wrappers(&ir);
+        let wrappers = detect_and_generate_concrete_wrappers(&ir, &HashSet::new());
         assert!(wrappers.is_empty());
     }
 
@@ -961,7 +1056,7 @@ mod tests {
             visibility: "public".to_string(),
         }));
 
-        let wrappers = detect_and_generate_concrete_wrappers(&ir);
+        let wrappers = detect_and_generate_concrete_wrappers(&ir, &HashSet::new());
         // Should generate: Container_String, Container_i64, Wrapper_String_i64
         assert_eq!(wrappers.len(), 3);
 
@@ -969,5 +1064,129 @@ mod tests {
         assert!(wrapper_names.contains(&"Container_String"));
         assert!(wrapper_names.contains(&"Container_i64"));
         assert!(wrapper_names.contains(&"Wrapper_String_i64"));
+    }
+
+    #[test]
+    fn test_process_user_monomorphizations_struct() {
+        let mut ir = make_simple_ir();
+
+        // Generic struct
+        ir.items.push(IrItem::Struct(StructItem {
+            kind: IrItemKind::Struct,
+            name: "Container".to_string(),
+            doc: "".to_string(),
+            fields: vec![StructField {
+                name: "value".to_string(),
+                type_str: "T".to_string(),
+                visibility: FieldVisibility::Public,
+            }],
+            methods: vec![],
+            has_lifetimes: false,
+            has_generics: true,
+        }));
+
+        // User-provided hints
+        let mut hints = HashMap::new();
+        hints.insert(
+            "Container<String>".to_string(),
+            crate::config::MonomorphizeEntry {
+                python: "MyStringContainer".to_string(),
+                strategy: "pyclass".to_string(),
+            },
+        );
+        hints.insert(
+            "Container<i64>".to_string(),
+            crate::config::MonomorphizeEntry {
+                python: "MyIntContainer".to_string(),
+                strategy: "pyclass".to_string(),
+            },
+        );
+
+        let wrappers = process_user_monomorphizations(&ir, &hints);
+        assert_eq!(wrappers.len(), 2);
+
+        let wrapper_names: Vec<&str> = wrappers.iter().map(|w| w.mapping.python_type.as_str()).collect();
+        assert!(wrapper_names.contains(&"MyStringContainer"));
+        assert!(wrapper_names.contains(&"MyIntContainer"));
+
+        // Verify strategies
+        for wrapper in &wrappers {
+            assert_eq!(wrapper.mapping.pyo3_strategy, PyO3Strategy::PyClass);
+            assert!(wrapper.mapping.warnings[0].message.contains("User-provided"));
+        }
+    }
+
+    #[test]
+    fn test_user_monomorphizations_empty_hints() {
+        let ir = make_simple_ir();
+        let hints = HashMap::new();
+        let wrappers = process_user_monomorphizations(&ir, &hints);
+        assert!(wrappers.is_empty());
+    }
+
+    #[test]
+    fn test_user_monomorphizations_take_priority() {
+        // Test that user-provided wrappers take priority over auto-detected ones
+        // by checking that `map_ir_with_full_context` prefers user wrappers.
+        let mut ir = make_simple_ir();
+
+        // Generic struct
+        ir.items.push(IrItem::Struct(StructItem {
+            kind: IrItemKind::Struct,
+            name: "Container".to_string(),
+            doc: "".to_string(),
+            fields: vec![StructField {
+                name: "value".to_string(),
+                type_str: "T".to_string(),
+                visibility: FieldVisibility::Public,
+            }],
+            methods: vec![],
+            has_lifetimes: false,
+            has_generics: true,
+        }));
+
+        // Function that uses Container<String> (will trigger auto-detect)
+        ir.items.push(IrItem::Function(FunctionItem {
+            kind: IrItemKind::Function,
+            name: "make_container".to_string(),
+            doc: "".to_string(),
+            inputs: vec![],
+            output: IrType {
+                type_str: "Container<String>".to_string(),
+            },
+            is_unsafe: false,
+            is_async: false,
+            has_generics: false,
+            visibility: "public".to_string(),
+        }));
+
+        // User hint with a different name for the same instantiation
+        let mut hints = HashMap::new();
+        hints.insert(
+            "Container<String>".to_string(),
+            crate::config::MonomorphizeEntry {
+                python: "UserContainer".to_string(),
+                strategy: "pyclass".to_string(),
+            },
+        );
+
+        let config = crate::config::VertumnusConfig {
+            type_mappings: HashMap::new(),
+            monomorphize: hints,
+        };
+
+        let annotated = crate::mapper::map_ir_with_full_context(&ir, Some(&config), None).unwrap();
+
+        // Should have the user's name, not the auto-detected one
+        let names: Vec<&str> = annotated.items.iter().map(|item| item.mapping.python_type.as_str()).collect();
+        assert!(
+            names.contains(&"UserContainer"),
+            "Should contain user-provided name 'UserContainer', got: {:?}",
+            names
+        );
+        assert!(
+            !names.contains(&"Container_String"),
+            "Should NOT contain auto-detected name 'Container_String'"
+        );
     }
 }
