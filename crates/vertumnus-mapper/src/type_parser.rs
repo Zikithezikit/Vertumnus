@@ -5,6 +5,7 @@
 //! strategies, and any warnings for unsupported types.
 
 use crate::annotated_ir::{MappingWarning, PyO3Strategy};
+use crate::config::VertumnusConfig;
 
 /// Result of mapping a single Rust type string to Python.
 #[derive(Debug, Clone, PartialEq)]
@@ -202,11 +203,22 @@ fn is_impl_trait(s: &str) -> bool {
 // Main mapping function
 // ---------------------------------------------------------------------------
 
-/// Map a Rust type string to its Python equivalent.
+/// Map a Rust type string to its Python equivalent (without config).
+///
+/// Convenience wrapper that delegates to [`map_type_with_config`] with no config.
+///
+/// See [`map_type_with_config`] for full documentation.
+pub fn map_type(type_str: &str, location: &str) -> MappedType {
+    map_type_with_config(type_str, location, None)
+}
+
+/// Map a Rust type string to its Python equivalent, consulting the optional
+/// user config for custom type mappings.
 ///
 /// This is the primary entry point for type mapping. It handles:
 /// - Primitives
 /// - Standard library types (String, Vec, Option, Result, HashMap, etc.)
+/// - User-defined type mappings from config (checked first for named types)
 /// - References (`&T`, `&mut T`)
 /// - Tuples
 /// - Slices and arrays
@@ -216,7 +228,12 @@ fn is_impl_trait(s: &str) -> bool {
 /// # Arguments
 /// * `type_str` - The Rust type string from the IR
 /// * `location` - A human-readable location for warning messages
-pub fn map_type(type_str: &str, location: &str) -> MappedType {
+/// * `config` - Optional user config for custom type mappings
+pub fn map_type_with_config(
+    type_str: &str,
+    location: &str,
+    config: Option<&VertumnusConfig>,
+) -> MappedType {
     let trimmed = trim_type(type_str);
 
     // Handle unit type and never type
@@ -249,7 +266,7 @@ pub fn map_type(type_str: &str, location: &str) -> MappedType {
     }
 
     // Reference types: &T, &mut T, &'a T, &'a mut T
-    if let Some(result) = try_parse_reference(trimmed, location) {
+    if let Some(result) = try_parse_reference(trimmed, location, config) {
         return result;
     }
 
@@ -279,21 +296,21 @@ pub fn map_type(type_str: &str, location: &str) -> MappedType {
 
     // Tuple types: (A, B, ...)
     if trimmed.starts_with('(') {
-        return parse_tuple(trimmed, location);
+        return parse_tuple(trimmed, location, config);
     }
 
     // Slice types: [T] or [T; N]
     if trimmed.starts_with('[') {
-        return parse_slice_or_array(trimmed, location);
+        return parse_slice_or_array(trimmed, location, config);
     }
 
     // Fn pointer types: fn(...) -> ...
     if trimmed.starts_with("fn(") {
-        return parse_fn_pointer(trimmed, location);
+        return parse_fn_pointer(trimmed, location, config);
     }
 
     // Generic type: Vec<T>, Option<T>, Result<T,E>, HashMap<K,V>, etc.
-    if let Some(result) = try_parse_generic(trimmed, location) {
+    if let Some(result) = try_parse_generic(trimmed, location, config) {
         return result;
     }
 
@@ -319,7 +336,19 @@ pub fn map_type(type_str: &str, location: &str) -> MappedType {
 
     // Function item types like `fn(usize) -> usize {main}`
     if trimmed.contains("{") && trimmed.starts_with("fn(") {
-        return parse_fn_pointer(trimmed, location);
+        return parse_fn_pointer(trimmed, location, config);
+    }
+
+    // NEW: Check config registry before falling back to default PyClass
+    if let Some(cfg) = config {
+        if let Some(entry) = cfg.lookup(trimmed) {
+            let strategy = VertumnusConfig::parse_strategy(&entry.strategy);
+            return MappedType {
+                python_type: entry.python.clone(),
+                pyo3_strategy: strategy,
+                warnings: Vec::new(),
+            };
+        }
     }
 
     // Fallback: treat as a named type (struct or enum) — will be #[pyclass]
@@ -331,7 +360,11 @@ pub fn map_type(type_str: &str, location: &str) -> MappedType {
 // ---------------------------------------------------------------------------
 
 /// Try to parse a reference type (`&T`, `&mut T`, `&'a T`, `&'a mut T`).
-fn try_parse_reference(type_str: &str, location: &str) -> Option<MappedType> {
+fn try_parse_reference(
+    type_str: &str,
+    location: &str,
+    config: Option<&VertumnusConfig>,
+) -> Option<MappedType> {
     let s = trim_type(type_str);
     if !s.starts_with('&') {
         return None;
@@ -355,7 +388,7 @@ fn try_parse_reference(type_str: &str, location: &str) -> Option<MappedType> {
             (false, after_lifetime)
         };
 
-        let inner_mapped = map_type(rest, location);
+        let inner_mapped = map_type_with_config(rest, location, config);
         let mut result = MappedType::new(inner_mapped.python_type.clone(), PyO3Strategy::Native);
         result.merge_warnings(&inner_mapped.warnings);
         result.warnings.push(MappingWarning {
@@ -371,21 +404,25 @@ fn try_parse_reference(type_str: &str, location: &str) -> Option<MappedType> {
     // &mut T
     if let Some(rest) = inner.strip_prefix("mut ") {
         let rest = rest.trim();
-        let inner_mapped = map_type(rest, location);
+        let inner_mapped = map_type_with_config(rest, location, config);
         let mut result = MappedType::new(inner_mapped.python_type.clone(), PyO3Strategy::Native);
         result.merge_warnings(&inner_mapped.warnings);
         return Some(result);
     }
 
     // &T (shared reference, including &str which is handled above)
-    let inner_mapped = map_type(inner, location);
+    let inner_mapped = map_type_with_config(inner, location, config);
     let mut result = MappedType::new(inner_mapped.python_type.clone(), PyO3Strategy::Native);
     result.merge_warnings(&inner_mapped.warnings);
     Some(result)
 }
 
 /// Parse a tuple type string: `(A, B, ...)`.
-fn parse_tuple(type_str: &str, location: &str) -> MappedType {
+fn parse_tuple(
+    type_str: &str,
+    location: &str,
+    config: Option<&VertumnusConfig>,
+) -> MappedType {
     let s = trim_type(type_str);
     debug_assert!(s.starts_with('(') && s.ends_with(')'));
 
@@ -399,7 +436,7 @@ fn parse_tuple(type_str: &str, location: &str) -> MappedType {
     let mut all_warnings = Vec::new();
 
     for arg in args {
-        let mapped = map_type(arg, location);
+        let mapped = map_type_with_config(arg, location, config);
         all_warnings.extend(mapped.warnings);
         mapped_args.push(mapped.python_type);
     }
@@ -413,7 +450,11 @@ fn parse_tuple(type_str: &str, location: &str) -> MappedType {
 }
 
 /// Parse a slice or array type: `[T]` or `[T; N]`.
-fn parse_slice_or_array(type_str: &str, location: &str) -> MappedType {
+fn parse_slice_or_array(
+    type_str: &str,
+    location: &str,
+    config: Option<&VertumnusConfig>,
+) -> MappedType {
     let s = trim_type(type_str);
     debug_assert!(s.starts_with('['));
     debug_assert!(s.ends_with(']'));
@@ -425,7 +466,7 @@ fn parse_slice_or_array(type_str: &str, location: &str) -> MappedType {
         // It's an array: [T; N]
         let element_type = &inner[..semi_pos].trim();
         let _len = &inner[semi_pos + 2..].trim();
-        let mapped = map_type(element_type, location);
+        let mapped = map_type_with_config(element_type, location, config);
         let mut result = MappedType::new(
             format!("list[{}]", mapped.python_type),
             PyO3Strategy::Native,
@@ -441,7 +482,7 @@ fn parse_slice_or_array(type_str: &str, location: &str) -> MappedType {
         result
     } else {
         // It's a slice: [T]
-        let mapped = map_type(inner, location);
+        let mapped = map_type_with_config(inner, location, config);
         let mut result = MappedType::new(
             format!("list[{}]", mapped.python_type),
             PyO3Strategy::Native,
@@ -452,7 +493,11 @@ fn parse_slice_or_array(type_str: &str, location: &str) -> MappedType {
 }
 
 /// Parse a function pointer type: `fn(...)` or `fn(...) -> ...`.
-fn parse_fn_pointer(type_str: &str, location: &str) -> MappedType {
+fn parse_fn_pointer(
+    type_str: &str,
+    location: &str,
+    config: Option<&VertumnusConfig>,
+) -> MappedType {
     let s = trim_type(type_str);
 
     // Strip everything after the return type (rustdoc sometimes adds {name})
@@ -481,7 +526,7 @@ fn parse_fn_pointer(type_str: &str, location: &str) -> MappedType {
         split_type_args(args_str)
             .iter()
             .map(|a| {
-                let mapped = map_type(a.trim(), location);
+                let mapped = map_type_with_config(a.trim(), location, config);
                 all_warnings.extend(mapped.warnings);
                 mapped.python_type
             })
@@ -489,7 +534,7 @@ fn parse_fn_pointer(type_str: &str, location: &str) -> MappedType {
     };
 
     let py_return = if let Some(ret) = return_str.strip_prefix("-> ") {
-        let mapped = map_type(ret.trim(), location);
+        let mapped = map_type_with_config(ret.trim(), location, config);
         all_warnings.extend(mapped.warnings);
         mapped.python_type
     } else {
@@ -510,7 +555,11 @@ fn parse_fn_pointer(type_str: &str, location: &str) -> MappedType {
 }
 
 /// Try to parse a generic type like `Vec<T>`, `Option<T>`, `Result<T,E>`, etc.
-fn try_parse_generic(type_str: &str, location: &str) -> Option<MappedType> {
+fn try_parse_generic(
+    type_str: &str,
+    location: &str,
+    config: Option<&VertumnusConfig>,
+) -> Option<MappedType> {
     let s = trim_type(type_str);
 
     // Find the opening angle bracket
@@ -522,7 +571,7 @@ fn try_parse_generic(type_str: &str, location: &str) -> Option<MappedType> {
     let args_str = &s[angle_start + 1..close_pos].trim();
 
     let args = split_type_args(args_str);
-    let mapped_args: Vec<MappedType> = args.iter().map(|a| map_type(a.trim(), location)).collect();
+    let mapped_args: Vec<MappedType> = args.iter().map(|a| map_type_with_config(a.trim(), location, config)).collect();
     let mut all_warnings: Vec<MappingWarning> = mapped_args
         .iter()
         .flat_map(|m| m.warnings.clone())
@@ -726,6 +775,27 @@ fn try_parse_generic(type_str: &str, location: &str) -> Option<MappedType> {
                         ),
                         location: location.to_string(),
                     });
+                }
+            }
+
+            // Check config registry for base name before falling back to PyClass
+            if let Some(cfg) = config {
+                if let Some(entry) = cfg.lookup(base_name) {
+                    let strategy = VertumnusConfig::parse_strategy(&entry.strategy);
+                    let mut result = MappedType {
+                        python_type: entry.python.clone(),
+                        pyo3_strategy: strategy,
+                        warnings: all_warnings,
+                    };
+                    if !mapped_args.is_empty() {
+                        result.warnings.push(MappingWarning {
+                            message: format!(
+                                "Generic type '{type_str}' has type parameters; generated binding will not be generic."
+                            ),
+                            location: location.to_string(),
+                        });
+                    }
+                    return Some(result);
                 }
             }
 
@@ -1133,5 +1203,193 @@ mod tests {
         assert_eq!(result.python_type, "Mutex");
         // Should have warning about lost semantics
         assert!(!result.warnings.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // Config-aware mapping tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_map_type_with_config_named_type() {
+        use crate::config::TypeMappingEntry;
+        use std::collections::HashMap;
+
+        let mut mappings = HashMap::new();
+        mappings.insert(
+            "bytes::Bytes".to_string(),
+            TypeMappingEntry {
+                python: "bytes".to_string(),
+                strategy: "native".to_string(),
+            },
+        );
+        let config = VertumnusConfig {
+            type_mappings: mappings,
+        };
+
+        // Named type that's in config should use the configured mapping
+        let result = map_type_with_config("bytes::Bytes", "test", Some(&config));
+        assert_eq!(result.python_type, "bytes");
+        assert_eq!(result.pyo3_strategy, PyO3Strategy::Native);
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_map_type_with_config_simple_name() {
+        use crate::config::TypeMappingEntry;
+        use std::collections::HashMap;
+
+        let mut mappings = HashMap::new();
+        mappings.insert(
+            "std::time::Duration".to_string(),
+            TypeMappingEntry {
+                python: "float".to_string(),
+                strategy: "native".to_string(),
+            },
+        );
+        let config = VertumnusConfig {
+            type_mappings: mappings,
+        };
+
+        // Simple name should match the fully-qualified key
+        let result = map_type_with_config("Duration", "test", Some(&config));
+        assert_eq!(result.python_type, "float");
+        assert_eq!(result.pyo3_strategy, PyO3Strategy::Native);
+    }
+
+    #[test]
+    fn test_map_type_with_config_inner_generic() {
+        use crate::config::TypeMappingEntry;
+        use std::collections::HashMap;
+
+        let mut mappings = HashMap::new();
+        mappings.insert(
+            "url::Url".to_string(),
+            TypeMappingEntry {
+                python: "str".to_string(),
+                strategy: "native".to_string(),
+            },
+        );
+        let config = VertumnusConfig {
+            type_mappings: mappings,
+        };
+
+        // Inner type in a generic should be resolved via config
+        let result = map_type_with_config("Option<url::Url>", "test", Some(&config));
+        assert_eq!(result.python_type, "str | None");
+        assert_eq!(result.pyo3_strategy, PyO3Strategy::Native);
+    }
+
+    #[test]
+    fn test_map_type_with_config_vec_config_type() {
+        use crate::config::TypeMappingEntry;
+        use std::collections::HashMap;
+
+        let mut mappings = HashMap::new();
+        mappings.insert(
+            "bytes::Bytes".to_string(),
+            TypeMappingEntry {
+                python: "bytes".to_string(),
+                strategy: "native".to_string(),
+            },
+        );
+        let config = VertumnusConfig {
+            type_mappings: mappings,
+        };
+
+        // Vec of a configured type
+        let result = map_type_with_config("Vec<bytes::Bytes>", "test", Some(&config));
+        assert_eq!(result.python_type, "list[bytes]");
+        assert_eq!(result.pyo3_strategy, PyO3Strategy::Native);
+    }
+
+    #[test]
+    fn test_map_type_with_config_no_match_falls_back() {
+        use crate::config::TypeMappingEntry;
+        use std::collections::HashMap;
+
+        let mut mappings = HashMap::new();
+        mappings.insert(
+            "bytes::Bytes".to_string(),
+            TypeMappingEntry {
+                python: "bytes".to_string(),
+                strategy: "native".to_string(),
+            },
+        );
+        let config = VertumnusConfig {
+            type_mappings: mappings,
+        };
+
+        // Types not in config fall back to default behavior
+        let result = map_type_with_config("SomeUnknownType", "test", Some(&config));
+        assert_eq!(result.python_type, "SomeUnknownType");
+        assert_eq!(result.pyo3_strategy, PyO3Strategy::PyClass);
+    }
+
+    #[test]
+    fn test_map_type_with_config_manual_strategy() {
+        use crate::config::TypeMappingEntry;
+        use std::collections::HashMap;
+
+        let mut mappings = HashMap::new();
+        mappings.insert(
+            "UnsupportedType".to_string(),
+            TypeMappingEntry {
+                python: "typing.Any".to_string(),
+                strategy: "manual".to_string(),
+            },
+        );
+        let config = VertumnusConfig {
+            type_mappings: mappings,
+        };
+
+        let result = map_type_with_config("UnsupportedType", "test", Some(&config));
+        assert_eq!(result.python_type, "typing.Any");
+        assert_eq!(result.pyo3_strategy, PyO3Strategy::ManualStub);
+    }
+
+    #[test]
+    fn test_map_type_with_config_generic_base_name() {
+        use crate::config::TypeMappingEntry;
+        use std::collections::HashMap;
+
+        let mut mappings = HashMap::new();
+        mappings.insert(
+            "MyWrapper".to_string(),
+            TypeMappingEntry {
+                python: "MyWrapped".to_string(),
+                strategy: "pyclass".to_string(),
+            },
+        );
+        let config = VertumnusConfig {
+            type_mappings: mappings,
+        };
+
+        // Generic type where the base name is in the config
+        let result = map_type_with_config("MyWrapper<String>", "test", Some(&config));
+        assert_eq!(result.python_type, "MyWrapped");
+        assert_eq!(result.pyo3_strategy, PyO3Strategy::PyClass);
+        // Should still have warning about type parameters being lost
+        assert!(result.warnings.iter().any(|w| w.message.contains("type parameters")));
+    }
+
+    #[test]
+    fn test_map_type_with_config_maperr_strategy() {
+        use crate::config::TypeMappingEntry;
+        use std::collections::HashMap;
+
+        let mut mappings = HashMap::new();
+        mappings.insert(
+            "AppResult".to_string(),
+            TypeMappingEntry {
+                python: "T".to_string(),
+                strategy: "maperr".to_string(),
+            },
+        );
+        let config = VertumnusConfig {
+            type_mappings: mappings,
+        };
+
+        let result = map_type_with_config("AppResult", "test", Some(&config));
+        assert_eq!(result.pyo3_strategy, PyO3Strategy::MapErr);
     }
 }

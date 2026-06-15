@@ -9,7 +9,8 @@ use vertumnus_inspector::ir::{
 };
 
 use crate::annotated_ir::{AnnotatedIr, AnnotatedItem, MappingWarning, PyO3Strategy, TypeMapping};
-use crate::type_parser::{map_type, MappedType};
+use crate::config::VertumnusConfig;
+use crate::type_parser::{map_type_with_config, MappedType};
 
 /// Errors that can occur during type mapping.
 #[derive(Debug, thiserror::Error)]
@@ -20,20 +21,31 @@ pub enum MapError {
     SerdeError(#[from] serde_json::Error),
 }
 
-/// Map an entire IR to an annotated IR.
+/// Map an entire IR to an annotated IR (without config).
+///
+/// Convenience wrapper that delegates to [`map_ir_with_config`] with no config.
+pub fn map_ir(ir: &IntermediateRepresentation) -> Result<AnnotatedIr, MapError> {
+    map_ir_with_config(ir, None)
+}
+
+/// Map an entire IR to an annotated IR, with an optional user config.
 ///
 /// This is the primary entry point for the type mapper phase.
 ///
 /// # Arguments
 /// * `ir` - The Intermediate Representation from Phase 1
+/// * `config` - Optional user config with custom type mappings
 ///
 /// # Returns
 /// * `AnnotatedIr` - The annotated IR with type mappings for every item
-pub fn map_ir(ir: &IntermediateRepresentation) -> Result<AnnotatedIr, MapError> {
+pub fn map_ir_with_config(
+    ir: &IntermediateRepresentation,
+    config: Option<&VertumnusConfig>,
+) -> Result<AnnotatedIr, MapError> {
     let mut annotated = AnnotatedIr::new(ir.crate_name.clone(), ir.crate_version.clone());
 
     for item in &ir.items {
-        let annotated_item = map_item(item);
+        let annotated_item = map_item(item, config);
         annotated.items.push(annotated_item);
     }
 
@@ -41,18 +53,18 @@ pub fn map_ir(ir: &IntermediateRepresentation) -> Result<AnnotatedIr, MapError> 
 }
 
 /// Map a single IR item to an annotated item.
-fn map_item(item: &IrItem) -> AnnotatedItem {
+fn map_item(item: &IrItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
     match item {
-        IrItem::Function(f) => map_function(f),
-        IrItem::Struct(s) => map_struct(s),
-        IrItem::Enum(e) => map_enum(e),
-        IrItem::Trait(t) => map_trait(t),
-        IrItem::Impl(i) => map_impl(i),
+        IrItem::Function(f) => map_function(f, config),
+        IrItem::Struct(s) => map_struct(s, config),
+        IrItem::Enum(e) => map_enum(e, config),
+        IrItem::Trait(t) => map_trait(t, config),
+        IrItem::Impl(i) => map_impl(i, config),
     }
 }
 
 /// Map a function item.
-fn map_function(func: &FunctionItem) -> AnnotatedItem {
+fn map_function(func: &FunctionItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
     let mut warnings = Vec::new();
 
     // Map inputs
@@ -61,7 +73,7 @@ fn map_function(func: &FunctionItem) -> AnnotatedItem {
         .iter()
         .map(|param| {
             let loc = format!("{}.{}", func.name, param.name);
-            map_type(&param.type_str, &loc)
+            map_type_with_config(&param.type_str, &loc, config)
         })
         .collect();
 
@@ -89,7 +101,7 @@ fn map_function(func: &FunctionItem) -> AnnotatedItem {
 
     // Map return type
     let output_location = format!("{}.return_type", func.name);
-    let output_mapping = map_type(&func.output.type_str, &output_location);
+    let output_mapping = map_type_with_config(&func.output.type_str, &output_location, config);
     warnings.extend(output_mapping.warnings.clone());
 
     // Build output python type string
@@ -155,7 +167,7 @@ fn map_function(func: &FunctionItem) -> AnnotatedItem {
 }
 
 /// Map a struct item.
-fn map_struct(s: &StructItem) -> AnnotatedItem {
+fn map_struct(s: &StructItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
     let mut warnings = Vec::new();
 
     // Map each field
@@ -164,7 +176,7 @@ fn map_struct(s: &StructItem) -> AnnotatedItem {
         .iter()
         .map(|field| {
             let loc = format!("{}.{}", s.name, field.name);
-            let mapped = map_type(&field.type_str, &loc);
+            let mapped = map_type_with_config(&field.type_str, &loc, config);
             (field.name.clone(), mapped)
         })
         .collect();
@@ -229,7 +241,7 @@ fn map_struct(s: &StructItem) -> AnnotatedItem {
 
     // Also map methods
     for method in &s.methods {
-        let method_warnings = map_function_method_warnings(method, &s.name);
+        let method_warnings = map_function_method_warnings(method, &s.name, config);
         warnings.extend(method_warnings);
     }
 
@@ -246,7 +258,7 @@ fn map_struct(s: &StructItem) -> AnnotatedItem {
 }
 
 /// Map an enum item.
-fn map_enum(e: &EnumItem) -> AnnotatedItem {
+fn map_enum(e: &EnumItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
     let mut warnings = Vec::new();
 
     // Determine if this is a C-like enum (no fields on any variant)
@@ -256,7 +268,7 @@ fn map_enum(e: &EnumItem) -> AnnotatedItem {
     for variant in &e.variants {
         for field in &variant.fields {
             let loc = format!("{}.{}.{}", e.name, variant.name, field.name);
-            let mapped = map_type(&field.type_str, &loc);
+            let mapped = map_type_with_config(&field.type_str, &loc, config);
             for w in &mapped.warnings {
                 warnings.push(w.clone());
             }
@@ -323,7 +335,7 @@ fn map_enum(e: &EnumItem) -> AnnotatedItem {
                     .iter()
                     .map(|f| {
                         let loc = format!("{}.{}.{}", e.name, v.name, f.name);
-                        let mapped = map_type(&f.type_str, &loc);
+                        let mapped = map_type_with_config(&f.type_str, &loc, config);
                         mapped.python_type
                     })
                     .collect();
@@ -340,7 +352,7 @@ fn map_enum(e: &EnumItem) -> AnnotatedItem {
 
     // Also map methods
     for method in &e.methods {
-        let method_warnings = map_function_method_warnings(method, &e.name);
+        let method_warnings = map_function_method_warnings(method, &e.name, config);
         warnings.extend(method_warnings);
     }
 
@@ -357,7 +369,7 @@ fn map_enum(e: &EnumItem) -> AnnotatedItem {
 }
 
 /// Map a trait item (informational — limited binding generation).
-fn map_trait(t: &TraitItem) -> AnnotatedItem {
+fn map_trait(t: &TraitItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
     let mut warnings = vec![MappingWarning {
         message: format!(
             "Trait '{}' has limited binding support in v1. Methods may need manual wrapping.",
@@ -368,7 +380,7 @@ fn map_trait(t: &TraitItem) -> AnnotatedItem {
 
     // Map methods
     for method in &t.methods {
-        let method_warnings = map_function_method_warnings(method, &t.name);
+        let method_warnings = map_function_method_warnings(method, &t.name, config);
         warnings.extend(method_warnings);
     }
 
@@ -385,12 +397,12 @@ fn map_trait(t: &TraitItem) -> AnnotatedItem {
 }
 
 /// Map an impl block item.
-fn map_impl(i: &ImplItem) -> AnnotatedItem {
+fn map_impl(i: &ImplItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
     let mut warnings = Vec::new();
 
     // Map methods
     for method in &i.methods {
-        let method_warnings = map_function_method_warnings(method, &i.type_name);
+        let method_warnings = map_function_method_warnings(method, &i.type_name, config);
         warnings.extend(method_warnings);
     }
 
@@ -418,18 +430,22 @@ fn map_impl(i: &ImplItem) -> AnnotatedItem {
 }
 
 /// Helper: collect warnings from mapping a function's types (for methods).
-fn map_function_method_warnings(func: &FunctionItem, parent_name: &str) -> Vec<MappingWarning> {
+fn map_function_method_warnings(
+    func: &FunctionItem,
+    parent_name: &str,
+    config: Option<&VertumnusConfig>,
+) -> Vec<MappingWarning> {
     let mut warnings = Vec::new();
     let location_prefix = format!("{}.{}", parent_name, func.name);
 
     for param in &func.inputs {
         let loc = format!("{}.{}", location_prefix, param.name);
-        let mapped = map_type(&param.type_str, &loc);
+        let mapped = map_type_with_config(&param.type_str, &loc, config);
         warnings.extend(mapped.warnings);
     }
 
     let ret_loc = format!("{}.return_type", location_prefix);
-    let ret_mapped = map_type(&func.output.type_str, &ret_loc);
+    let ret_mapped = map_type_with_config(&func.output.type_str, &ret_loc, config);
     warnings.extend(ret_mapped.warnings);
 
     warnings
@@ -756,6 +772,68 @@ mod tests {
         let annotated = map_ir(&ir).unwrap();
         let item = &annotated.items[0];
         assert_eq!(item.mapping.pyo3_strategy, PyO3Strategy::ManualStub);
+    }
+
+    #[test]
+    fn test_map_ir_with_config_uses_custom_mappings() {
+        use crate::config::TypeMappingEntry;
+        use std::collections::HashMap;
+
+        // Create a config with custom type mappings
+        let mut mappings = HashMap::new();
+        mappings.insert(
+            "MyCustomType".to_string(),
+            TypeMappingEntry {
+                python: "int".to_string(),
+                strategy: "native".to_string(),
+            },
+        );
+        let config = VertumnusConfig {
+            type_mappings: mappings,
+        };
+
+        let ir = IntermediateRepresentation {
+            vertumnus_ir_version: "0.1".to_string(),
+            crate_name: "test".to_string(),
+            crate_version: "1.0.0".to_string(),
+            items: vec![IrItem::Function(FunctionItem {
+                kind: IrItemKind::Function,
+                name: "foo".to_string(),
+                doc: "".to_string(),
+                inputs: vec![FunctionParameter {
+                    name: "x".to_string(),
+                    type_str: "MyCustomType".to_string(),
+                }],
+                output: IrType {
+                    type_str: "MyCustomType".to_string(),
+                },
+                is_unsafe: false,
+                is_async: false,
+                has_generics: false,
+                visibility: "public".to_string(),
+            })],
+        };
+
+        let annotated = map_ir_with_config(&ir, Some(&config)).unwrap();
+        let item = &annotated.items[0];
+        // The custom type should be mapped to "int" with Native strategy
+        assert!(
+            item.mapping.python_type.contains("int"),
+            "Expected python_type to contain 'int', got: {}",
+            item.mapping.python_type
+        );
+        // Should not have warnings about the custom type
+        let custom_type_warnings: Vec<_> = item
+            .mapping
+            .warnings
+            .iter()
+            .filter(|w| w.message.contains("MyCustomType"))
+            .collect();
+        assert!(
+            custom_type_warnings.is_empty(),
+            "Expected no warnings about MyCustomType, got: {:?}",
+            custom_type_warnings
+        );
     }
 
     #[test]

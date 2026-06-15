@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
+use vertumnus_mapper::config::VertumnusConfig;
 
 /// Transform any Rust crate into a Python package — with minimal manual binding work.
 #[derive(Parser, Debug)]
@@ -27,6 +28,10 @@ enum Commands {
     Wrap {
         /// Path to the Rust crate to wrap
         path: PathBuf,
+
+        /// Path to a .vertumnus/config.toml file for custom type mappings
+        #[arg(long)]
+        config: Option<PathBuf>,
 
         /// Output directory for generated files (default: ../py-<crate_name>)
         #[arg(long)]
@@ -72,6 +77,10 @@ enum Commands {
         /// Path to the IR JSON file
         path: PathBuf,
 
+        /// Path to a .vertumnus/config.toml file for custom type mappings
+        #[arg(long)]
+        config: Option<PathBuf>,
+
         /// Output file for the annotated IR JSON (default: stdout)
         #[arg(long)]
         output: Option<PathBuf>,
@@ -102,6 +111,40 @@ enum Commands {
         #[arg(long)]
         overwrite: bool,
     },
+}
+
+/// Load a Vertumnus config from an optional `--config` path.
+/// If `None`, tries to auto-detect `.vertumnus/config.toml` in the crate dir.
+/// Returns `None` if neither exists (not an error).
+fn load_config(config_path: Option<&Path>, crate_dir: &Path) -> anyhow::Result<Option<VertumnusConfig>> {
+    match config_path {
+        Some(path) => {
+            let resolved = if path.is_relative() {
+                crate_dir.join(path)
+            } else {
+                path.to_path_buf()
+            };
+            match VertumnusConfig::from_file(&resolved)? {
+                Some(config) => {
+                    eprintln!("📋 Loaded config: {}", resolved.display());
+                    Ok(Some(config))
+                }
+                None => {
+                    anyhow::bail!("Config file not found: {}", resolved.display());
+                }
+            }
+        }
+        None => {
+            // Auto-detect .vertumnus/config.toml in crate directory
+            match VertumnusConfig::auto_detect(crate_dir)? {
+                Some(config) => {
+                    eprintln!("📋 Auto-detected config: {}/.vertumnus/config.toml", crate_dir.display());
+                    Ok(Some(config))
+                }
+                None => Ok(None),
+            }
+        }
+    }
 }
 
 fn write_generated_files(
@@ -164,6 +207,7 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Wrap {
             path,
+            config,
             out,
             package_name,
             dry_run,
@@ -183,7 +227,10 @@ fn main() -> anyhow::Result<()> {
                 eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
             }
 
-            let annotated = vertumnus_mapper::map_ir(&ir)?;
+            // Load optional config for custom type mappings
+            let config = load_config(config.as_deref(), &path)?;
+
+            let annotated = vertumnus_mapper::map_ir_with_config(&ir, config.as_ref())?;
 
             if dry_run {
                 // Dry-run: output annotated IR and exit
@@ -354,6 +401,7 @@ fn main() -> anyhow::Result<()> {
 
         Commands::Map {
             path,
+            config,
             output,
             verbose,
         } => {
@@ -369,7 +417,12 @@ fn main() -> anyhow::Result<()> {
                 );
             }
 
-            let annotated = vertumnus_mapper::map_ir(&ir)?;
+            // Load optional config for custom type mappings
+            // For the Map command, use the parent dir of the IR file as the crate dir
+            let crate_dir = path.parent().unwrap_or_else(|| Path::new("."));
+            let config = load_config(config.as_deref(), crate_dir)?;
+
+            let annotated = vertumnus_mapper::map_ir_with_config(&ir, config.as_ref())?;
 
             if verbose {
                 let total_warnings: usize = annotated
