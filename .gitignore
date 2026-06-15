@@ -6,6 +6,9 @@
 # Vertumnus output directories
 vertumnus-out/
 
+# Vertumnus incremental cache
+.cache/
+
 # IDE
 .vscode/
 .idea/

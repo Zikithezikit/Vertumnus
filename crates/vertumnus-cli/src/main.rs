@@ -15,6 +15,7 @@ use clap::{Parser, Subcommand};
 use vertumnus_mapper::config::VertumnusConfig;
 
 mod cache;
+mod registry;
 
 /// Transform any Rust crate into a Python package — with minimal manual binding work.
 #[derive(Parser, Debug)]
@@ -92,6 +93,16 @@ enum Commands {
         verbose: bool,
     },
 
+    /// Community type mapping registry — fetch, list, apply mappings
+    Registry {
+        #[command(subcommand)]
+        action: RegistryAction,
+
+        /// Print detailed information about registry operations
+        #[arg(long, short, global = true)]
+        verbose: bool,
+    },
+
     /// Phase 3: Generate Rust bindings and .pyi stubs from annotated IR
     Generate {
         /// Path to the annotated IR JSON file
@@ -112,6 +123,63 @@ enum Commands {
         /// Overwrite existing output files
         #[arg(long)]
         overwrite: bool,
+    },
+}
+
+/// Actions for the `vertumnus registry` subcommand.
+#[derive(Subcommand, Debug)]
+enum RegistryAction {
+    /// Fetch the latest community type mappings from the remote registry
+    Fetch {
+        /// URL of the community registry (default: official Vertumnus registry)
+        #[arg(long)]
+        registry_url: Option<String>,
+
+        /// Save fetched mappings to a local file instead of the default cache
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+
+    /// List all available type mappings in the community registry
+    List {
+        /// Optional search query to filter mappings
+        query: Option<String>,
+
+        /// Path to a cached registry file (default: auto-detect)
+        #[arg(long)]
+        registry_file: Option<PathBuf>,
+    },
+
+    /// Apply community registry mappings to the local .vertumnus/config.toml
+    Apply {
+        /// Path to a registry file (default: use cached community registry)
+        #[arg(long)]
+        registry_file: Option<PathBuf>,
+
+        /// Path to the local config file (default: .vertumnus/config.toml in current dir)
+        #[arg(long)]
+        config: Option<PathBuf>,
+
+        /// Overwrite existing user-defined mappings (default: prefer user mappings)
+        #[arg(long)]
+        overwrite: bool,
+    },
+
+    /// Add a custom type mapping to the local config
+    Add {
+        /// Rust type to map (e.g. bytes::Bytes)
+        rust_type: String,
+
+        /// Python type to map to (e.g. bytes)
+        python_type: String,
+
+        /// PyO3 strategy to use (native, manual)
+        #[arg(long, default_value = "native")]
+        strategy: String,
+
+        /// Path to the local config file (default: .vertumnus/config.toml in current dir)
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
 }
 
@@ -507,6 +575,161 @@ fn main() -> anyhow::Result<()> {
                 }
                 None => {
                     println!("{}", json);
+                }
+            }
+        }
+
+        Commands::Registry { action, verbose } => {
+            match action {
+                RegistryAction::Fetch {
+                    registry_url,
+                    output,
+                } => {
+                    if verbose {
+                        eprintln!("🌐 Fetching community registry...");
+                    }
+                    let result = registry::fetch_registry(registry_url.as_deref())?;
+
+                    if verbose {
+                        eprintln!(
+                            "   Fetched {} type mappings (version: {})",
+                            result.count,
+                            result.version.as_deref().unwrap_or("unknown")
+                        );
+                    }
+
+                    match output {
+                        Some(out_path) => {
+                            // Save to the specified file
+                            let parent = out_path.parent().unwrap_or_else(|| Path::new("."));
+                            registry::save_registry_cache(&result.mappings, parent)?;
+                            eprintln!("✅ Registry saved to: {}", out_path.display());
+                        }
+                        None => {
+                            // Save to default cache location
+                            let cache_dir = registry::config_dir();
+                            registry::save_registry_cache(&result.mappings, &cache_dir)?;
+                            eprintln!("✅ Registry cached at: {}/community_registry.toml", cache_dir.display());
+                        }
+                    }
+                }
+                RegistryAction::List {
+                    query,
+                    registry_file,
+                } => {
+                    if verbose {
+                        eprintln!("📋 Loading community registry...");
+                    }
+
+                    let mappings = if let Some(file) = registry_file {
+                        // Load from specified file
+                        let content = std::fs::read_to_string(&file)?;
+                        let reg: registry::RegistryFile = toml::from_str(&content)?;
+                        reg.type_mappings
+                    } else {
+                        // Try loading from cache
+                        let cache_dir = registry::config_dir();
+                        match registry::load_registry_cache(&cache_dir)? {
+                            Some(result) => result.mappings,
+                            None => {
+                                eprintln!("No cached registry found. Run `vertumnus registry fetch` first.");
+                                return Ok(());
+                            }
+                        }
+                    };
+
+                    let mut keys: Vec<&String> = mappings.keys().collect();
+                    keys.sort();
+
+                    if let Some(query_str) = &query {
+                        let query_lower = query_str.to_lowercase();
+                        keys.retain(|k| k.to_lowercase().contains(&query_lower));
+                    }
+
+                    if keys.is_empty() {
+                        eprintln!("No matching type mappings found.");
+                        return Ok(());
+                    }
+
+                    eprintln!("Found {} type mappings:", keys.len());
+                    for key in keys {
+                        let entry = &mappings[key];
+                        eprintln!("   {} → {} (via {})", key, entry.python, entry.strategy);
+                    }
+                }
+                RegistryAction::Apply {
+                    registry_file,
+                    config,
+                    overwrite,
+                } => {
+                    if verbose {
+                        eprintln!("🔄 Applying registry mappings to local config...");
+                    }
+
+                    // Determine registry mappings source
+                    let mappings = if let Some(file) = registry_file {
+                        let content = std::fs::read_to_string(&file)?;
+                        let reg: registry::RegistryFile = toml::from_str(&content)?;
+                        reg.type_mappings
+                    } else {
+                        let cache_dir = registry::config_dir();
+                        match registry::load_registry_cache(&cache_dir)? {
+                            Some(result) => result.mappings,
+                            None => {
+                                eprintln!("No cached registry found. Run `vertumnus registry fetch` first.");
+                                return Ok(());
+                            }
+                        }
+                    };
+
+                    // Determine config path
+                    let config_path = match config {
+                        Some(p) => p,
+                        None => PathBuf::from(".vertumnus/config.toml"),
+                    };
+
+                    if !overwrite {
+                        // Normal mode: merge (user mappings take priority)
+                        registry::apply_registry_to_config(&mappings, &config_path)?;
+                    } else {
+                        // Overwrite mode: replace user config entirely
+                        if let Some(parent) = config_path.parent() {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                        let mut content = String::from(
+                            "# Vertumnus configuration\n# Generated from community registry\n\n[type_mappings]\n",
+                        );
+                        let mut keys: Vec<&String> = mappings.keys().collect();
+                        keys.sort();
+                        for key in keys {
+                            let entry = &mappings[key];
+                            content.push_str(&format!(
+                                "\"{}\" = {{ python = \"{}\", strategy = \"{}\" }}\n",
+                                key, entry.python, entry.strategy
+                            ));
+                        }
+                        std::fs::write(&config_path, &content)?;
+                    }
+
+                    eprintln!("✅ Applied {} mappings to {}", mappings.len(), config_path.display());
+                }
+                RegistryAction::Add {
+                    rust_type,
+                    python_type,
+                    strategy,
+                    config,
+                } => {
+                    if verbose {
+                        eprintln!("➕ Adding mapping: {} → {} (strategy: {})", rust_type, python_type, strategy);
+                    }
+
+                    let config_path = match config {
+                        Some(p) => p,
+                        None => PathBuf::from(".vertumnus/config.toml"),
+                    };
+
+                    registry::add_mapping_to_config(&rust_type, &python_type, &strategy, &config_path)?;
+                    eprintln!("✅ Mapping added to: {}", config_path.display());
                 }
             }
         }

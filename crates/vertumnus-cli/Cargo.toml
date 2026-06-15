@@ -17,9 +17,14 @@ vertumnus-generator.workspace = true
 vertumnus-builder.workspace = true
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 walkdir = "2"
+toml = "0.8"
+ureq = { version = "2", features = ["tls"] }
+dirs = "5"
+thiserror = "2"
 
 [dev-dependencies]
 serde_json = "1"
