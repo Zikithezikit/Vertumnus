@@ -74,10 +74,10 @@ impl VertumnusConfig {
         if !path.exists() {
             return Ok(None);
         }
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::Io(path.to_path_buf(), e))?;
-        let config: Self = toml::from_str(&content)
-            .map_err(|e| ConfigError::Parse(path.to_path_buf(), e))?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| ConfigError::Io(path.to_path_buf(), e))?;
+        let config: Self =
+            toml::from_str(&content).map_err(|e| ConfigError::Parse(path.to_path_buf(), e))?;
         Ok(Some(config))
     }
 
@@ -216,12 +216,30 @@ mod tests {
         assert_eq!(entry.python, "float");
 
         // Check strategy parsing
-        assert_eq!(VertumnusConfig::parse_strategy("native"), PyO3Strategy::Native);
-        assert_eq!(VertumnusConfig::parse_strategy("pyclass"), PyO3Strategy::PyClass);
-        assert_eq!(VertumnusConfig::parse_strategy("pyenum"), PyO3Strategy::PyEnum);
-        assert_eq!(VertumnusConfig::parse_strategy("maperr"), PyO3Strategy::MapErr);
-        assert_eq!(VertumnusConfig::parse_strategy("manual"), PyO3Strategy::ManualStub);
-        assert_eq!(VertumnusConfig::parse_strategy("unknown"), PyO3Strategy::ManualStub);
+        assert_eq!(
+            VertumnusConfig::parse_strategy("native"),
+            PyO3Strategy::Native
+        );
+        assert_eq!(
+            VertumnusConfig::parse_strategy("pyclass"),
+            PyO3Strategy::PyClass
+        );
+        assert_eq!(
+            VertumnusConfig::parse_strategy("pyenum"),
+            PyO3Strategy::PyEnum
+        );
+        assert_eq!(
+            VertumnusConfig::parse_strategy("maperr"),
+            PyO3Strategy::MapErr
+        );
+        assert_eq!(
+            VertumnusConfig::parse_strategy("manual"),
+            PyO3Strategy::ManualStub
+        );
+        assert_eq!(
+            VertumnusConfig::parse_strategy("unknown"),
+            PyO3Strategy::ManualStub
+        );
     }
 
     #[test]
@@ -261,50 +279,51 @@ mod tests {
         assert_eq!(config.type_mappings.len(), 1);
     }
 
-#[test]
-fn test_parse_monomorphize_key_simple() {
-    let (base, args) = VertumnusConfig::parse_monomorphize_key("Container<String>").unwrap();
-    assert_eq!(base, "Container");
-    assert_eq!(args, vec!["String"]);
-}
+    #[test]
+    fn test_parse_monomorphize_key_simple() {
+        let (base, args) = VertumnusConfig::parse_monomorphize_key("Container<String>").unwrap();
+        assert_eq!(base, "Container");
+        assert_eq!(args, vec!["String"]);
+    }
 
-#[test]
-fn test_parse_monomorphize_key_multi_args() {
-    let (base, args) = VertumnusConfig::parse_monomorphize_key("Container<String, i64>").unwrap();
-    assert_eq!(base, "Container");
-    assert_eq!(args, vec!["String", "i64"]);
-}
+    #[test]
+    fn test_parse_monomorphize_key_multi_args() {
+        let (base, args) =
+            VertumnusConfig::parse_monomorphize_key("Container<String, i64>").unwrap();
+        assert_eq!(base, "Container");
+        assert_eq!(args, vec!["String", "i64"]);
+    }
 
-#[test]
-fn test_parse_monomorphize_key_no_generics() {
-    assert!(VertumnusConfig::parse_monomorphize_key("Container").is_none());
-}
+    #[test]
+    fn test_parse_monomorphize_key_no_generics() {
+        assert!(VertumnusConfig::parse_monomorphize_key("Container").is_none());
+    }
 
-#[test]
-fn test_parse_monomorphize_key_empty_angle() {
-    assert!(VertumnusConfig::parse_monomorphize_key("Container<>").is_none());
-}
+    #[test]
+    fn test_parse_monomorphize_key_empty_angle() {
+        assert!(VertumnusConfig::parse_monomorphize_key("Container<>").is_none());
+    }
 
-#[test]
-fn test_load_config_with_monomorphize() {
-    let content = r#"
+    #[test]
+    fn test_load_config_with_monomorphize() {
+        let content = r#"
 [monomorphize]
 "Container<String>" = { python = "WrappedString", strategy = "pyclass" }
 "Container<i64>" = { python = "WrappedInt", strategy = "pyclass" }
 "Result<Data, MyError>" = { python = "Data", strategy = "maperr" }
 "#;
-    let path = write_temp_config(content);
-    let config = VertumnusConfig::from_file(&path).unwrap().unwrap();
-    assert_eq!(config.monomorphize.len(), 3);
+        let path = write_temp_config(content);
+        let config = VertumnusConfig::from_file(&path).unwrap().unwrap();
+        assert_eq!(config.monomorphize.len(), 3);
 
-    // Check container string
-    let entry = config.monomorphize.get("Container<String>").unwrap();
-    assert_eq!(entry.python, "WrappedString");
-    assert_eq!(entry.strategy, "pyclass");
-}
+        // Check container string
+        let entry = config.monomorphize.get("Container<String>").unwrap();
+        assert_eq!(entry.python, "WrappedString");
+        assert_eq!(entry.strategy, "pyclass");
+    }
 
-#[test]
-fn test_invalid_toml_returns_error() {
+    #[test]
+    fn test_invalid_toml_returns_error() {
         let path = write_temp_config("invalid toml content [[[");
         let result = VertumnusConfig::from_file(&path);
         assert!(result.is_err());

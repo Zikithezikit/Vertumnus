@@ -40,10 +40,7 @@ impl Cache {
             .unwrap_or("unknown_crate");
 
         let content_hash = compute_source_hash(crate_dir)?;
-        let cache_dir = crate_dir
-            .join(".cache")
-            .join("vertumnus")
-            .join(crate_name);
+        let cache_dir = crate_dir.join(".cache").join("vertumnus").join(crate_name);
 
         Ok(Self {
             cache_dir,
@@ -91,9 +88,9 @@ impl Cache {
         std::fs::write(self.cache_dir.join("ir.content_hash"), &self.content_hash)?;
 
         // Write IR JSON
-        let ir_json = ir.to_json_pretty().map_err(|e| {
-            std::io::Error::other(format!("Serialization error: {e}"))
-        })?;
+        let ir_json = ir
+            .to_json_pretty()
+            .map_err(|e| std::io::Error::other(format!("Serialization error: {e}")))?;
         std::fs::write(self.cache_dir.join("ir.json"), ir_json)?;
 
         Ok(())
@@ -107,9 +104,9 @@ impl Cache {
         std::fs::write(self.cache_dir.join("ir.content_hash"), &self.content_hash)?;
 
         // Write annotated IR JSON
-        let annotated_json = annotated.to_json_pretty().map_err(|e| {
-            std::io::Error::other(format!("Serialization error: {e}"))
-        })?;
+        let annotated_json = annotated
+            .to_json_pretty()
+            .map_err(|e| std::io::Error::other(format!("Serialization error: {e}")))?;
         std::fs::write(self.cache_dir.join("annotated_ir.json"), annotated_json)?;
 
         Ok(())
@@ -123,7 +120,11 @@ impl Cache {
 /// falls back to hashing files in the crate root.
 fn compute_source_hash(crate_dir: &Path) -> std::io::Result<String> {
     let src_dir = crate_dir.join("src");
-    let search_dir = if src_dir.is_dir() { src_dir } else { crate_dir.to_path_buf() };
+    let search_dir = if src_dir.is_dir() {
+        src_dir
+    } else {
+        crate_dir.to_path_buf()
+    };
 
     let mut hasher = Sha256::new();
     let mut files_hashed = 0u64;
@@ -131,16 +132,13 @@ fn compute_source_hash(crate_dir: &Path) -> std::io::Result<String> {
     // Walk the directory and collect all .rs file paths, then sort them
     // to ensure deterministic ordering.
     let mut rs_files: Vec<PathBuf> = Vec::new();
-    for entry in WalkDir::new(&search_dir)
-        .into_iter()
-        .filter_entry(|e| {
-            // Skip hidden directories (like .cache, .git)
-            e.file_name()
-                .to_str()
-                .map(|s| !s.starts_with('.'))
-                .unwrap_or(false)
-        })
-    {
+    for entry in WalkDir::new(&search_dir).into_iter().filter_entry(|e| {
+        // Skip hidden directories (like .cache, .git)
+        e.file_name()
+            .to_str()
+            .map(|s| !s.starts_with('.'))
+            .unwrap_or(false)
+    }) {
         let entry = entry?;
         if entry.file_type().is_file() {
             if let Some(ext) = entry.path().extension() {
@@ -232,8 +230,14 @@ mod tests {
         // Modify source — cache should be stale
         fs::write(src.join("lib.rs"), "pub fn bar() {}").unwrap();
         let cache2 = Cache::new(&dir).unwrap();
-        assert!(cache2.load_ir().is_none(), "Cache should be stale after source change");
-        assert!(cache2.load_annotated_ir().is_none(), "Cache should be stale after source change");
+        assert!(
+            cache2.load_ir().is_none(),
+            "Cache should be stale after source change"
+        );
+        assert!(
+            cache2.load_annotated_ir().is_none(),
+            "Cache should be stale after source change"
+        );
 
         // Cleanup
         fs::remove_dir_all(&dir).unwrap_or(());
@@ -241,7 +245,8 @@ mod tests {
 
     #[test]
     fn test_cache_missing() {
-        let dir = std::env::temp_dir().join(format!("vertumnus_cache_missing_{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("vertumnus_cache_missing_{}", std::process::id()));
         // Directory doesn't actually exist — Cache::new still works (checks src dir existence)
         fs::create_dir_all(&dir).unwrap();
         let cache = Cache::new(&dir).unwrap();

@@ -52,8 +52,7 @@ pub fn inspect_crate(crate_path: &Path) -> Result<IntermediateRepresentation, In
             // vs. a recoverable technical issue (nightly not available, missing JSON output)
             let should_fallback = matches!(
                 &primary_err,
-                InspectError::CargoRustdocFailed(_)
-                    | InspectError::OutputFileNotFound { .. }
+                InspectError::CargoRustdocFailed(_) | InspectError::OutputFileNotFound { .. }
             );
 
             if should_fallback {
@@ -73,7 +72,9 @@ pub fn inspect_crate(crate_path: &Path) -> Result<IntermediateRepresentation, In
 }
 
 /// Inspect a crate using only the rustdoc JSON path (no syn fallback).
-pub fn inspect_crate_rustdoc(crate_path: &Path) -> Result<IntermediateRepresentation, InspectError> {
+pub fn inspect_crate_rustdoc(
+    crate_path: &Path,
+) -> Result<IntermediateRepresentation, InspectError> {
     let rustdoc_json = run_rustdoc_json(crate_path)?;
     let parsed: Value = serde_json::from_str(&rustdoc_json)?;
     convert_rustdoc_to_ir(crate_path, &parsed)
@@ -598,6 +599,15 @@ fn convert_function(item: &RustdocItem, func: &RustdocFunction) -> Option<Functi
         .unwrap_or_else(|| "()".to_string());
 
     let has_generics = !func.generic_params.is_empty();
+    let generic_params: Vec<String> = func
+        .generic_params
+        .iter()
+        .filter_map(|p| {
+            p.get("name")
+                .and_then(|n| n.as_str())
+                .map(|n| n.to_string())
+        })
+        .collect();
 
     Some(FunctionItem {
         kind: IrItemKind::Function,
@@ -609,6 +619,7 @@ fn convert_function(item: &RustdocItem, func: &RustdocFunction) -> Option<Functi
         is_async: func.is_async,
         has_generics,
         visibility: "public".to_string(),
+        generic_params,
     })
 }
 
@@ -645,6 +656,15 @@ fn convert_struct(
             .and_then(|k| k.get("lifetime"))
             .is_some()
     });
+    let generic_params: Vec<String> = s
+        .generic_params
+        .iter()
+        .filter_map(|p| {
+            p.get("name")
+                .and_then(|n| n.as_str())
+                .map(|n| n.to_string())
+        })
+        .collect();
 
     // Fetch inherent methods from impl blocks
     let methods = collect_type_methods(name, &s.impl_ids, index, false);
@@ -657,6 +677,7 @@ fn convert_struct(
         methods,
         has_lifetimes,
         has_generics,
+        generic_params,
     })
 }
 
@@ -771,6 +792,15 @@ fn convert_enum(
             .and_then(|k| k.get("lifetime"))
             .is_some()
     });
+    let generic_params: Vec<String> = e
+        .generic_params
+        .iter()
+        .filter_map(|p| {
+            p.get("name")
+                .and_then(|n| n.as_str())
+                .map(|n| n.to_string())
+        })
+        .collect();
 
     let methods = collect_type_methods(name, &e.impl_ids, index, false);
 
@@ -782,6 +812,7 @@ fn convert_enum(
         methods,
         has_lifetimes,
         has_generics,
+        generic_params,
     })
 }
 

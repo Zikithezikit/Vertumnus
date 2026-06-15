@@ -8,13 +8,16 @@ use std::path::Path;
 
 use rayon::prelude::*;
 use vertumnus_inspector::ir::{
-    EnumItem, FunctionItem, ImplItem, IntermediateRepresentation, IrItem, StructItem, TraitItem,
+    EnumItem, FunctionItem, ImplItem, IntermediateRepresentation, IrItem, StructField, StructItem,
+    TraitItem,
 };
 
 use crate::annotated_ir::{AnnotatedIr, AnnotatedItem, MappingWarning, PyO3Strategy, TypeMapping};
 use crate::config::VertumnusConfig;
 use crate::dependency_resolver::{self, CargoLockInfo};
-use crate::monomorphization::{detect_and_generate_concrete_wrappers, process_user_monomorphizations};
+use crate::monomorphization::{
+    detect_and_generate_concrete_wrappers, process_user_monomorphizations,
+};
 use crate::type_parser::{map_type_with_full_context, MappedType};
 
 /// Errors that can occur during type mapping.
@@ -165,7 +168,8 @@ fn map_function(
 
     // Map return type
     let output_location = format!("{}.return_type", func.name);
-    let output_mapping = map_type_with_full_context(&func.output.type_str, &output_location, config, deps);
+    let output_mapping =
+        map_type_with_full_context(&func.output.type_str, &output_location, config, deps);
     warnings.extend(output_mapping.warnings.clone());
 
     // Build output python type string
@@ -230,6 +234,35 @@ fn map_function(
     }
 }
 
+/// Check if a field is a `PhantomData<T>` field (no runtime representation).
+fn is_phantom_data_field(field: &StructField) -> bool {
+    field.type_str.starts_with("PhantomData<") || field.type_str.contains("::PhantomData<")
+}
+
+/// Check if all generic parameters of a struct are erasure-safe,
+/// i.e., they only appear in `PhantomData` fields and never in real fields.
+fn are_generics_erasure_safe(s: &StructItem, fields: &[StructField]) -> bool {
+    if s.generic_params.is_empty() {
+        return false;
+    }
+    // Collect real (non-PhantomData) field type strings
+    let real_field_types: Vec<&str> = fields
+        .iter()
+        .filter(|f| !is_phantom_data_field(f))
+        .map(|f| f.type_str.as_str())
+        .collect();
+
+    // Check each generic param: if it appears in any real field, it's NOT erasure-safe
+    for param in &s.generic_params {
+        for real_type in &real_field_types {
+            if real_type.contains(param.as_str()) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// Map a struct item.
 fn map_struct(
     s: &StructItem,
@@ -238,10 +271,11 @@ fn map_struct(
 ) -> AnnotatedItem {
     let mut warnings = Vec::new();
 
-    // Map each field
+    // Map each field, skipping PhantomData fields (no runtime representation)
     let field_mappings: Vec<(String, MappedType)> = s
         .fields
         .iter()
+        .filter(|field| !is_phantom_data_field(field))
         .map(|field| {
             let loc = format!("{}.{}", s.name, field.name);
             let mapped = map_type_with_full_context(&field.type_str, &loc, config, deps);
@@ -276,8 +310,15 @@ fn map_struct(
         });
     }
 
-    // Check for generics
-    if s.has_generics {
+    // Check if generics are erasure-safe (only used in PhantomData fields)
+    let generics_erased = if s.has_generics {
+        are_generics_erasure_safe(s, &s.fields)
+    } else {
+        false
+    };
+
+    // Only warn about generics if they are NOT erasure-safe
+    if s.has_generics && !generics_erased {
         warnings.push(MappingWarning {
             message: format!(
                 "Struct '{}' has generic parameters — generated binding will not be generic.",
@@ -288,8 +329,8 @@ fn map_struct(
     }
 
     // Determine strategy
-    let strategy = if s.has_lifetimes || s.has_generics {
-        // Structs with lifetimes or generic parameters cannot be accurately represented
+    let strategy = if s.has_lifetimes || (s.has_generics && !generics_erased) {
+        // Structs with lifetimes or non-erased generic params cannot be accurately represented
         PyO3Strategy::ManualStub
     } else {
         PyO3Strategy::PyClass
@@ -568,6 +609,7 @@ mod tests {
                 is_async: false,
                 has_generics: false,
                 visibility: "public".to_string(),
+                generic_params: vec![],
             })],
         };
 
@@ -613,6 +655,7 @@ mod tests {
                 methods: vec![],
                 has_lifetimes: false,
                 has_generics: false,
+                generic_params: vec![],
             })],
         };
 
@@ -650,6 +693,7 @@ mod tests {
                 methods: vec![],
                 has_lifetimes: false,
                 has_generics: false,
+                generic_params: vec![],
             })],
         };
 
@@ -677,6 +721,7 @@ mod tests {
                 methods: vec![],
                 has_lifetimes: true,
                 has_generics: false,
+                generic_params: vec![],
             })],
         };
 
@@ -716,6 +761,7 @@ mod tests {
                 is_async: false,
                 has_generics: false,
                 visibility: "public".to_string(),
+                generic_params: vec![],
             })],
         };
 
@@ -755,6 +801,7 @@ mod tests {
                 is_async: false,
                 has_generics: false,
                 visibility: "public".to_string(),
+                generic_params: vec![],
             })],
         };
 
@@ -791,6 +838,7 @@ mod tests {
                 is_async: false,
                 has_generics: true,
                 visibility: "public".to_string(),
+                generic_params: vec![],
             })],
         };
 
@@ -820,6 +868,7 @@ mod tests {
                 is_async: false,
                 has_generics: false,
                 visibility: "public".to_string(),
+                generic_params: vec![],
             })],
         };
 
@@ -893,6 +942,7 @@ mod tests {
                 is_async: false,
                 has_generics: false,
                 visibility: "public".to_string(),
+                generic_params: vec![],
             })],
         };
 
@@ -948,6 +998,7 @@ mod tests {
                     is_async: false,
                     has_generics: false,
                     visibility: "public".to_string(),
+                    generic_params: vec![],
                 }],
                 trait_name: None,
                 doc: "".to_string(),

@@ -240,10 +240,8 @@ impl Generator {
             .collect();
 
         // Combined set for backward compatibility
-        let wrapper_types: HashSet<String> = struct_wrappers
-            .union(&enum_wrappers)
-            .cloned()
-            .collect();
+        let wrapper_types: HashSet<String> =
+            struct_wrappers.union(&enum_wrappers).cloned().collect();
 
         // ===================================================================
         // MODULE LEVEL: Item definitions (functions, structs, enums)
@@ -257,11 +255,7 @@ impl Generator {
             .map(|item| {
                 let code = match &item.original {
                     IrItem::Function(func_item) => {
-                        codegen::generate_function_wrapper(
-                            func_item,
-                            &item.mapping,
-                            &wrapper_types,
-                        )
+                        codegen::generate_function_wrapper(func_item, &item.mapping, &wrapper_types)
                     }
                     IrItem::Struct(struct_item) => {
                         let methods = methods_by_type
@@ -295,9 +289,7 @@ impl Generator {
                 };
 
                 let (fn_reg, class_reg, enum_reg) = match &item.original {
-                    IrItem::Function(func_item) => {
-                        (Some(func_item.name.clone()), None, None)
-                    }
+                    IrItem::Function(func_item) => (Some(func_item.name.clone()), None, None),
                     IrItem::Struct(struct_item) => {
                         let class_reg = if item.mapping.pyo3_strategy != PyO3Strategy::ManualStub {
                             Some(struct_item.name.clone())
@@ -420,14 +412,15 @@ impl Generator {
 
     /// Check if any function or method in the annotated IR is async.
     fn has_async_functions(&self) -> bool {
-        self.annotated.items.iter().any(|item| {
-            match &item.original {
+        self.annotated
+            .items
+            .iter()
+            .any(|item| match &item.original {
                 IrItem::Function(func) => func.is_async,
                 IrItem::Struct(s) => s.methods.iter().any(|m| m.is_async),
                 IrItem::Enum(e) => e.methods.iter().any(|m| m.is_async),
                 _ => false,
-            }
-        })
+            })
     }
 
     /// Detect which `use` imports are needed based on the annotated IR.
@@ -651,6 +644,7 @@ mod tests {
                     is_async: false,
                     has_generics: false,
                     visibility: "public".to_string(),
+                    generic_params: vec![],
                 }),
                 IrItem::Struct(StructItem {
                     kind: IrItemKind::Struct,
@@ -689,9 +683,11 @@ mod tests {
                         is_async: false,
                         has_generics: false,
                         visibility: "public".to_string(),
+                        generic_params: vec![],
                     }],
                     has_lifetimes: false,
                     has_generics: false,
+                    generic_params: vec![],
                 }),
                 IrItem::Enum(EnumItem {
                     kind: IrItemKind::Enum,
@@ -712,6 +708,7 @@ mod tests {
                     methods: vec![],
                     has_lifetimes: false,
                     has_generics: false,
+                    generic_params: vec![],
                 }),
             ],
         };

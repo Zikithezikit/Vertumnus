@@ -63,7 +63,9 @@ pub fn detect_and_generate_concrete_wrappers(
 
             match original {
                 IrItem::Struct(s) => {
-                    if let Some(wrapper) = generate_concrete_struct(s, type_name, args, &wrapper_name) {
+                    if let Some(wrapper) =
+                        generate_concrete_struct(s, type_name, args, &wrapper_name)
+                    {
                         // Create an AnnotatedItem for this concrete wrapper
                         let annotated = AnnotatedItem {
                             original: IrItem::Struct(wrapper),
@@ -84,7 +86,8 @@ pub fn detect_and_generate_concrete_wrappers(
                     }
                 }
                 IrItem::Enum(e) => {
-                    if let Some(wrapper) = generate_concrete_enum(e, type_name, args, &wrapper_name) {
+                    if let Some(wrapper) = generate_concrete_enum(e, type_name, args, &wrapper_name)
+                    {
                         let annotated = AnnotatedItem {
                             original: IrItem::Enum(wrapper),
                             mapping: TypeMapping {
@@ -149,7 +152,9 @@ pub fn process_user_monomorphizations(
 
         match original {
             IrItem::Struct(s) => {
-                if let Some(wrapper) = generate_concrete_struct(s, base_type, &wrapper_parts, wrapper_name) {
+                if let Some(wrapper) =
+                    generate_concrete_struct(s, base_type, &wrapper_parts, wrapper_name)
+                {
                     let annotated = AnnotatedItem {
                         original: IrItem::Struct(wrapper),
                         mapping: TypeMapping {
@@ -169,7 +174,9 @@ pub fn process_user_monomorphizations(
                 }
             }
             IrItem::Enum(e) => {
-                if let Some(wrapper) = generate_concrete_enum(e, base_type, &wrapper_parts, wrapper_name) {
+                if let Some(wrapper) =
+                    generate_concrete_enum(e, base_type, &wrapper_parts, wrapper_name)
+                {
                     let annotated = AnnotatedItem {
                         original: IrItem::Enum(wrapper),
                         mapping: TypeMapping {
@@ -413,10 +420,7 @@ fn split_top_level_args(s: &str) -> Vec<String> {
 /// - `Map<[String, i64]>` → `Container_String_i64`
 fn generate_concrete_name(base_name: &str, args: &[String]) -> String {
     let sanitized_base = sanitize_python_name(base_name);
-    let sanitized_args: Vec<String> = args
-        .iter()
-        .map(|a| sanitize_type_for_name(a))
-        .collect();
+    let sanitized_args: Vec<String> = args.iter().map(|a| sanitize_type_for_name(a)).collect();
     if sanitized_args.is_empty() {
         sanitized_base
     } else {
@@ -430,7 +434,11 @@ fn sanitize_python_name(name: &str) -> String {
     let name = name.replace("::", "_");
     // Strip leading/trailing underscores
     let name = name.trim_matches('_').to_string();
-    if name.is_empty() { "Generic".to_string() } else { name.to_string() }
+    if name.is_empty() {
+        "Generic".to_string()
+    } else {
+        name.to_string()
+    }
 }
 
 /// Sanitize a type string for use in a Python identifier.
@@ -458,10 +466,7 @@ fn sanitize_type_for_name(type_str: &str) -> String {
     else if trimmed.starts_with('(') {
         let inner = &trimmed[1..trimmed.rfind(')').unwrap_or(trimmed.len())];
         let args = split_top_level_args(inner);
-        let sanitized: Vec<String> = args
-            .iter()
-            .map(|a| sanitize_type_for_name(a))
-            .collect();
+        let sanitized: Vec<String> = args.iter().map(|a| sanitize_type_for_name(a)).collect();
         format!("tuple_{}", sanitized.join("_"))
     }
     // Handle references
@@ -559,6 +564,7 @@ fn generate_concrete_struct(
         methods: Vec::new(), // Methods not transferred (they reference generic params)
         has_lifetimes: false,
         has_generics: false,
+        generic_params: vec![],
     })
 }
 
@@ -622,6 +628,7 @@ fn generate_concrete_enum(
         methods: Vec::new(),
         has_lifetimes: false,
         has_generics: false,
+        generic_params: vec![],
     })
 }
 
@@ -631,7 +638,10 @@ fn extract_type_params_from_fields(fields: &[StructField]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
 
     for field in fields {
-        for word in field.type_str.split(&['<', '>', ',', ' ', '(', ')', '[', ']', ':', ';']) {
+        for word in field
+            .type_str
+            .split(&['<', '>', ',', ' ', '(', ')', '[', ']', ':', ';'])
+        {
             let word = word.trim();
             if word.len() == 1 {
                 let c = word.chars().next().unwrap_or('_');
@@ -653,15 +663,35 @@ fn extract_type_params_from_fields(fields: &[StructField]) -> Vec<String> {
 fn is_known_type(s: &str) -> bool {
     matches!(
         s,
-        "i8" | "i16" | "i32" | "i64" | "i128"
-            | "u8" | "u16" | "u32" | "u64" | "u128"
-            | "isize" | "usize"
-            | "f32" | "f64"
-            | "bool" | "char" | "str" | "String"
-            | "Vec" | "Option" | "Result" | "HashMap" | "HashSet"
-            | "Box" | "Rc" | "Arc" | "Cow"
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "isize"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "char"
+            | "str"
+            | "String"
+            | "Vec"
+            | "Option"
+            | "Result"
+            | "HashMap"
+            | "HashSet"
+            | "Box"
+            | "Rc"
+            | "Arc"
+            | "Cow"
             | "Self"
-            | "Send" | "Sync"
+            | "Send"
+            | "Sync"
     )
 }
 
@@ -709,9 +739,7 @@ fn substitute_type_params(type_str: &str, sub_map: &HashMap<&str, &str>) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vertumnus_inspector::ir::{
-        FieldVisibility, FunctionItem, FunctionParameter, IrType,
-    };
+    use vertumnus_inspector::ir::{FieldVisibility, FunctionItem, FunctionParameter, IrType};
 
     fn make_simple_ir() -> IntermediateRepresentation {
         IntermediateRepresentation::new("test_crate".to_string(), "1.0.0".to_string())
@@ -739,6 +767,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: true,
+            generic_params: vec![],
         }));
         let types = collect_generic_types(&ir);
         assert_eq!(types.len(), 1);
@@ -756,6 +785,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: false,
+            generic_params: vec![],
         }));
         let types = collect_generic_types(&ir);
         assert!(types.is_empty());
@@ -890,6 +920,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: true,
+            generic_params: vec![],
         };
 
         let result = generate_concrete_struct(
@@ -928,6 +959,7 @@ mod tests {
             is_async: false,
             has_generics: false,
             visibility: "public".to_string(),
+            generic_params: vec![],
         }));
 
         let usages = scan_concrete_usages(&ir, &generic_types);
@@ -953,6 +985,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: true,
+            generic_params: vec![],
         }));
 
         // Function that uses Container<String>
@@ -968,6 +1001,7 @@ mod tests {
             is_async: false,
             has_generics: false,
             visibility: "public".to_string(),
+            generic_params: vec![],
         }));
 
         let wrappers = detect_and_generate_concrete_wrappers(&ir, &HashSet::new());
@@ -1009,6 +1043,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: true,
+            generic_params: vec![],
         }));
 
         ir.items.push(IrItem::Struct(StructItem {
@@ -1030,6 +1065,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: true,
+            generic_params: vec![],
         }));
 
         // Multiple usages
@@ -1054,13 +1090,17 @@ mod tests {
             is_async: false,
             has_generics: false,
             visibility: "public".to_string(),
+            generic_params: vec![],
         }));
 
         let wrappers = detect_and_generate_concrete_wrappers(&ir, &HashSet::new());
         // Should generate: Container_String, Container_i64, Wrapper_String_i64
         assert_eq!(wrappers.len(), 3);
 
-        let wrapper_names: Vec<&str> = wrappers.iter().map(|w| w.mapping.python_type.as_str()).collect();
+        let wrapper_names: Vec<&str> = wrappers
+            .iter()
+            .map(|w| w.mapping.python_type.as_str())
+            .collect();
         assert!(wrapper_names.contains(&"Container_String"));
         assert!(wrapper_names.contains(&"Container_i64"));
         assert!(wrapper_names.contains(&"Wrapper_String_i64"));
@@ -1083,6 +1123,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: true,
+            generic_params: vec![],
         }));
 
         // User-provided hints
@@ -1105,14 +1146,19 @@ mod tests {
         let wrappers = process_user_monomorphizations(&ir, &hints);
         assert_eq!(wrappers.len(), 2);
 
-        let wrapper_names: Vec<&str> = wrappers.iter().map(|w| w.mapping.python_type.as_str()).collect();
+        let wrapper_names: Vec<&str> = wrappers
+            .iter()
+            .map(|w| w.mapping.python_type.as_str())
+            .collect();
         assert!(wrapper_names.contains(&"MyStringContainer"));
         assert!(wrapper_names.contains(&"MyIntContainer"));
 
         // Verify strategies
         for wrapper in &wrappers {
             assert_eq!(wrapper.mapping.pyo3_strategy, PyO3Strategy::PyClass);
-            assert!(wrapper.mapping.warnings[0].message.contains("User-provided"));
+            assert!(wrapper.mapping.warnings[0]
+                .message
+                .contains("User-provided"));
         }
     }
 
@@ -1143,6 +1189,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: true,
+            generic_params: vec![],
         }));
 
         // Function that uses Container<String> (will trigger auto-detect)
@@ -1158,6 +1205,7 @@ mod tests {
             is_async: false,
             has_generics: false,
             visibility: "public".to_string(),
+            generic_params: vec![],
         }));
 
         // User hint with a different name for the same instantiation
@@ -1178,7 +1226,11 @@ mod tests {
         let annotated = crate::mapper::map_ir_with_full_context(&ir, Some(&config), None).unwrap();
 
         // Should have the user's name, not the auto-detected one
-        let names: Vec<&str> = annotated.items.iter().map(|item| item.mapping.python_type.as_str()).collect();
+        let names: Vec<&str> = annotated
+            .items
+            .iter()
+            .map(|item| item.mapping.python_type.as_str())
+            .collect();
         assert!(
             names.contains(&"UserContainer"),
             "Should contain user-provided name 'UserContainer', got: {:?}",

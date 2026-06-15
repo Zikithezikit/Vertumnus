@@ -35,20 +35,22 @@ use crate::inspector::InspectError;
 const MAX_MODULE_DEPTH: usize = 16;
 
 /// Parse a Rust crate using `syn` by reading its source files.
-pub fn inspect_crate_with_syn(crate_path: &Path) -> Result<IntermediateRepresentation, InspectError> {
+pub fn inspect_crate_with_syn(
+    crate_path: &Path,
+) -> Result<IntermediateRepresentation, InspectError> {
     let crate_root = find_crate_root(crate_path)?;
 
     // Read and extract crate name from Cargo.toml
     let cargo_toml_path = crate_root.join("Cargo.toml");
-    let cargo_content = fs::read_to_string(&cargo_toml_path)
-        .map_err(|e| InspectError::CargoRustdocFailed(format!(
+    let cargo_content = fs::read_to_string(&cargo_toml_path).map_err(|e| {
+        InspectError::CargoRustdocFailed(format!(
             "Failed to read Cargo.toml at {}: {e}",
             cargo_toml_path.display()
-        )))?;
-    let cargo_parsed: toml::Value = cargo_content.parse()
-        .map_err(|e| InspectError::CargoRustdocFailed(format!(
-            "Failed to parse Cargo.toml: {e}"
-        )))?;
+        ))
+    })?;
+    let cargo_parsed: toml::Value = cargo_content.parse().map_err(|e| {
+        InspectError::CargoRustdocFailed(format!("Failed to parse Cargo.toml: {e}"))
+    })?;
     let crate_name = cargo_parsed
         .get("package")
         .and_then(|p| p.get("name"))
@@ -75,16 +77,18 @@ pub fn inspect_crate_with_syn(crate_path: &Path) -> Result<IntermediateRepresent
         // Try main.rs as fallback
         let main_path = crate_root.join("src").join("main.rs");
         if main_path.exists() {
-            let source = fs::read_to_string(&main_path)
-                .map_err(|e| InspectError::CargoRustdocFailed(format!(
+            let source = fs::read_to_string(&main_path).map_err(|e| {
+                InspectError::CargoRustdocFailed(format!(
                     "Failed to read {}: {e}",
                     main_path.display()
-                )))?;
-            let file = parse_file(&source)
-                .map_err(|e| InspectError::CargoRustdocFailed(format!(
+                ))
+            })?;
+            let file = parse_file(&source).map_err(|e| {
+                InspectError::CargoRustdocFailed(format!(
                     "Failed to parse {}: {e}",
                     main_path.display()
-                )))?;
+                ))
+            })?;
             parse_syn_file(&file, &crate_root, &mut ir, 0)?;
         } else {
             return Err(InspectError::CargoRustdocFailed(format!(
@@ -94,16 +98,12 @@ pub fn inspect_crate_with_syn(crate_path: &Path) -> Result<IntermediateRepresent
             )));
         }
     } else {
-        let source = fs::read_to_string(&lib_path)
-            .map_err(|e| InspectError::CargoRustdocFailed(format!(
-                "Failed to read {}: {e}",
-                lib_path.display()
-            )))?;
-        let file = parse_file(&source)
-            .map_err(|e| InspectError::CargoRustdocFailed(format!(
-                "Failed to parse {}: {e}",
-                lib_path.display()
-            )))?;
+        let source = fs::read_to_string(&lib_path).map_err(|e| {
+            InspectError::CargoRustdocFailed(format!("Failed to read {}: {e}", lib_path.display()))
+        })?;
+        let file = parse_file(&source).map_err(|e| {
+            InspectError::CargoRustdocFailed(format!("Failed to parse {}: {e}", lib_path.display()))
+        })?;
         parse_syn_file(&file, &crate_root, &mut ir, 0)?;
     }
 
@@ -132,16 +132,10 @@ fn find_crate_root(path: &Path) -> Result<std::path::PathBuf, InspectError> {
     } else if canonical.is_file() {
         // Could be Cargo.toml itself
         if canonical.file_name().and_then(|s| s.to_str()) == Some("Cargo.toml") {
-            Ok(canonical
-                .parent()
-                .unwrap_or(&canonical)
-                .to_path_buf())
+            Ok(canonical.parent().unwrap_or(&canonical).to_path_buf())
         } else {
             // Assume it's the crate root file
-            Ok(canonical
-                .parent()
-                .unwrap_or(&canonical)
-                .to_path_buf())
+            Ok(canonical.parent().unwrap_or(&canonical).to_path_buf())
         }
     } else {
         Err(InspectError::CargoRustdocFailed(format!(
@@ -217,16 +211,18 @@ fn parse_syn_item(
                 ];
                 for candidate in &candidates {
                     if candidate.exists() {
-                        let source = fs::read_to_string(candidate)
-                            .map_err(|e| InspectError::CargoRustdocFailed(format!(
+                        let source = fs::read_to_string(candidate).map_err(|e| {
+                            InspectError::CargoRustdocFailed(format!(
                                 "Failed to read module file {}: {e}",
                                 candidate.display()
-                            )))?;
-                        let file = parse_file(&source)
-                            .map_err(|e| InspectError::CargoRustdocFailed(format!(
+                            ))
+                        })?;
+                        let file = parse_file(&source).map_err(|e| {
+                            InspectError::CargoRustdocFailed(format!(
                                 "Failed to parse module file {}: {e}",
                                 candidate.display()
-                            )))?;
+                            ))
+                        })?;
                         parse_syn_file(&file, crate_root, ir, depth + 1)?;
                         break;
                     }
@@ -288,10 +284,7 @@ fn extract_doc(attrs: &[Attribute]) -> String {
 
             if let Some(text) = value {
                 // Trim leading whitespace from doc comments
-                let trimmed = text
-                    .strip_prefix(' ')
-                    .unwrap_or(&text)
-                    .to_string();
+                let trimmed = text.strip_prefix(' ').unwrap_or(&text).to_string();
                 doc_lines.push(trimmed);
             }
         }
@@ -322,9 +315,7 @@ fn param_type_str(arg: &FnArg) -> Option<String> {
 /// Extract a parameter's name, converting receiver to "self".
 fn param_name_str(arg: &FnArg) -> String {
     match arg {
-        FnArg::Typed(pat_type) => {
-            pat_name_str(&pat_type.pat)
-        }
+        FnArg::Typed(pat_type) => pat_name_str(&pat_type.pat),
         FnArg::Receiver(_) => "self".to_string(),
     }
 }
@@ -352,6 +343,17 @@ fn convert_fn_item(f: &ItemFn) -> Option<FunctionItem> {
     let is_unsafe = f.sig.unsafety.is_some();
     let is_async = f.sig.asyncness.is_some();
     let has_generics = !f.sig.generics.params.is_empty();
+    let generic_params: Vec<String> = f
+        .sig
+        .generics
+        .params
+        .iter()
+        .filter_map(|p| match p {
+            GenericParam::Type(tp) => Some(tp.ident.to_string()),
+            GenericParam::Lifetime(_) => None,
+            GenericParam::Const(cp) => Some(cp.ident.to_string()),
+        })
+        .collect();
 
     let inputs: Vec<FunctionParameter> = f
         .sig
@@ -389,6 +391,7 @@ fn convert_fn_item(f: &ItemFn) -> Option<FunctionItem> {
         is_async,
         has_generics,
         visibility: "public".to_string(),
+        generic_params,
     })
 }
 
@@ -407,6 +410,16 @@ fn convert_struct_item(s: &ItemStruct) -> Option<StructItem> {
     let fields = struct_fields_to_ir(&s.fields);
     let has_generics = !s.generics.params.is_empty();
     let has_lifetimes = has_lifetime_params(&s.generics.params);
+    let generic_params: Vec<String> = s
+        .generics
+        .params
+        .iter()
+        .filter_map(|p| match p {
+            GenericParam::Type(tp) => Some(tp.ident.to_string()),
+            GenericParam::Lifetime(_) => None,
+            GenericParam::Const(cp) => Some(cp.ident.to_string()),
+        })
+        .collect();
 
     Some(StructItem {
         kind: IrItemKind::Struct,
@@ -416,6 +429,7 @@ fn convert_struct_item(s: &ItemStruct) -> Option<StructItem> {
         methods: Vec::new(), // Methods will be collected in post-processing
         has_lifetimes,
         has_generics,
+        generic_params,
     })
 }
 
@@ -431,7 +445,11 @@ fn struct_fields_to_ir(fields: &Fields) -> Vec<StructField> {
                     FieldVisibility::Private
                 };
                 StructField {
-                    name: f.ident.as_ref().map(|id| id.to_string()).unwrap_or_else(|| "_".to_string()),
+                    name: f
+                        .ident
+                        .as_ref()
+                        .map(|id| id.to_string())
+                        .unwrap_or_else(|| "_".to_string()),
                     type_str: type_to_string(&f.ty),
                     visibility: vis,
                 }
@@ -471,6 +489,16 @@ fn convert_enum_item(e: &ItemEnum) -> Option<EnumItem> {
     let doc = extract_doc(&e.attrs);
     let has_generics = !e.generics.params.is_empty();
     let has_lifetimes = has_lifetime_params(&e.generics.params);
+    let generic_params: Vec<String> = e
+        .generics
+        .params
+        .iter()
+        .filter_map(|p| match p {
+            GenericParam::Type(tp) => Some(tp.ident.to_string()),
+            GenericParam::Lifetime(_) => None,
+            GenericParam::Const(cp) => Some(cp.ident.to_string()),
+        })
+        .collect();
 
     let variants: Vec<EnumVariant> = e
         .variants
@@ -496,6 +524,7 @@ fn convert_enum_item(e: &ItemEnum) -> Option<EnumItem> {
         methods: Vec::new(),
         has_lifetimes,
         has_generics,
+        generic_params,
     })
 }
 
@@ -505,7 +534,11 @@ fn enum_variant_fields_to_ir(fields: &Fields) -> Vec<StructField> {
             .named
             .iter()
             .map(|f| StructField {
-                name: f.ident.as_ref().map(|id| id.to_string()).unwrap_or_else(|| "_".to_string()),
+                name: f
+                    .ident
+                    .as_ref()
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "_".to_string()),
                 type_str: type_to_string(&f.ty),
                 visibility: FieldVisibility::Public,
             })
@@ -583,6 +616,7 @@ fn convert_trait_item(t: &ItemTrait) -> Option<TraitItem> {
                         is_async,
                         has_generics,
                         visibility: "public".to_string(),
+                        generic_params: vec![],
                     })
                 }
                 _ => None,
@@ -606,9 +640,10 @@ fn convert_trait_item(t: &ItemTrait) -> Option<TraitItem> {
 fn convert_impl_item(i: &ItemImpl) -> Option<ImplItem> {
     let type_name = type_to_string(&i.self_ty);
 
-    let trait_name = i.trait_.as_ref().map(|(_, path, _)| {
-        quote::quote!(#path).to_string()
-    });
+    let trait_name = i
+        .trait_
+        .as_ref()
+        .map(|(_, path, _)| quote::quote!(#path).to_string());
 
     let methods: Vec<FunctionItem> = i
         .items
@@ -656,6 +691,7 @@ fn convert_impl_item(i: &ItemImpl) -> Option<ImplItem> {
                         is_async,
                         has_generics,
                         visibility: "public".to_string(),
+                        generic_params: vec![],
                     })
                 }
                 _ => None,
@@ -676,8 +712,12 @@ fn convert_impl_item(i: &ItemImpl) -> Option<ImplItem> {
 // Generic helpers
 // ---------------------------------------------------------------------------
 
-fn has_lifetime_params(params: &syn::punctuated::Punctuated<GenericParam, syn::token::Comma>) -> bool {
-    params.iter().any(|p| matches!(p, GenericParam::Lifetime(_)))
+fn has_lifetime_params(
+    params: &syn::punctuated::Punctuated<GenericParam, syn::token::Comma>,
+) -> bool {
+    params
+        .iter()
+        .any(|p| matches!(p, GenericParam::Lifetime(_)))
 }
 
 // ---------------------------------------------------------------------------
@@ -941,9 +981,17 @@ impl MyStruct {
         assert_eq!(ir.items.len(), 2);
 
         // Find the impl
-        let impls: Vec<&ImplItem> = ir.items.iter().filter_map(|item| {
-            if let IrItem::Impl(i) = item { Some(i) } else { None }
-        }).collect();
+        let impls: Vec<&ImplItem> = ir
+            .items
+            .iter()
+            .filter_map(|item| {
+                if let IrItem::Impl(i) = item {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(impls.len(), 1);
         assert_eq!(impls[0].methods.len(), 2);
         assert_eq!(impls[0].methods[0].name, "new");
@@ -971,15 +1019,20 @@ impl MyTrait for MyStruct {
         let crate_root = Path::new("/tmp");
         parse_syn_file(&file, crate_root, &mut ir, 0).unwrap();
 
-        let impls: Vec<&ImplItem> = ir.items.iter().filter_map(|item| {
-            if let IrItem::Impl(i) = item { Some(i) } else { None }
-        }).collect();
+        let impls: Vec<&ImplItem> = ir
+            .items
+            .iter()
+            .filter_map(|item| {
+                if let IrItem::Impl(i) = item {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(impls.len(), 1);
         assert!(impls[0].trait_name.is_some());
-        assert_eq!(
-            impls[0].trait_name.as_deref().unwrap(),
-            "MyTrait"
-        );
+        assert_eq!(impls[0].trait_name.as_deref().unwrap(), "MyTrait");
     }
 
     #[test]

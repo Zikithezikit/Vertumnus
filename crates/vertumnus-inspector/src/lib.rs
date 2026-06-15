@@ -34,5 +34,5 @@ pub mod ir;
 pub mod syn_parser;
 
 pub use inspector::{inspect_crate, inspect_crate_rustdoc};
-pub use syn_parser::inspect_crate_with_syn;
 pub use ir::*;
+pub use syn_parser::inspect_crate_with_syn;

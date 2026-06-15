@@ -107,7 +107,8 @@ pub fn save_registry_cache(
             .map_err(|e| RegistryError::Io(format!("Failed to create cache dir: {e}")))?;
     }
 
-    let mut content = String::from("# Vertumnus community type mappings\n# Fetched from remote registry\n\n");
+    let mut content =
+        String::from("# Vertumnus community type mappings\n# Fetched from remote registry\n\n");
     content.push_str("[type_mappings]\n");
 
     // Sort keys for deterministic output
@@ -178,7 +179,9 @@ pub fn apply_registry_to_config(
             .map_err(|e| RegistryError::Io(format!("Failed to create config dir: {e}")))?;
     }
 
-    let mut content = String::from("# Vertumnus configuration\n# Auto-generated with community registry mappings\n\n");
+    let mut content = String::from(
+        "# Vertumnus configuration\n# Auto-generated with community registry mappings\n\n",
+    );
     content.push_str("[type_mappings]\n");
 
     let mut keys: Vec<&String> = merged.keys().collect();
@@ -247,8 +250,7 @@ pub fn add_mapping_to_config(
 
 /// Get the user's config directory for Vertumnus.
 pub fn config_dir() -> PathBuf {
-    let base = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."));
+    let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join("vertumnus")
 }
 

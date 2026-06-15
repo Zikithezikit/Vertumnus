@@ -593,71 +593,89 @@ fn test_full_wrap_simple_math() {
 #[test]
 fn test_inspect_data_enum_has_fields() {
     let workspace = workspace_root();
-    let fixture = workspace.join("tests").join("fixtures").join("data-structures");
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("data-structures");
 
-    let (stdout, stderr, status) = run_vertumnus(&[
-        "inspect",
-        fixture.to_str().unwrap(),
-    ]);
+    let (stdout, stderr, status) = run_vertumnus(&["inspect", fixture.to_str().unwrap()]);
     assert!(status.success(), "inspect failed: {}", stderr);
 
-    let ir: serde_json::Value =
-        serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+    let ir: serde_json::Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
 
     // Find the ValidationError enum
     let items = ir["items"].as_array().expect("items should be an array");
-    let validation_enum = items.iter().find(|item| {
-        item["kind"] == "enum" && item["name"] == "ValidationError"
-    });
-    assert!(validation_enum.is_some(), "ValidationError enum should be in IR");
+    let validation_enum = items
+        .iter()
+        .find(|item| item["kind"] == "enum" && item["name"] == "ValidationError");
+    assert!(
+        validation_enum.is_some(),
+        "ValidationError enum should be in IR"
+    );
 
-    let variants = validation_enum.unwrap()["variants"].as_array()
+    let variants = validation_enum.unwrap()["variants"]
+        .as_array()
         .expect("variants should be an array");
-    
+
     // Check EmptyInput has no fields
     let empty = variants.iter().find(|v| v["name"] == "EmptyInput").unwrap();
-    assert_eq!(empty["fields"].as_array().unwrap().len(), 0, "EmptyInput should have no fields");
+    assert_eq!(
+        empty["fields"].as_array().unwrap().len(),
+        0,
+        "EmptyInput should have no fields"
+    );
 
     // Check TooLong has fields
     let too_long = variants.iter().find(|v| v["name"] == "TooLong").unwrap();
-    assert!(!too_long["fields"].as_array().unwrap().is_empty(), "TooLong should have fields");
+    assert!(
+        !too_long["fields"].as_array().unwrap().is_empty(),
+        "TooLong should have fields"
+    );
 
     // Check InvalidCharacter has a field
-    let invalid = variants.iter().find(|v| v["name"] == "InvalidCharacter").unwrap();
-    assert!(!invalid["fields"].as_array().unwrap().is_empty(), "InvalidCharacter should have fields");
+    let invalid = variants
+        .iter()
+        .find(|v| v["name"] == "InvalidCharacter")
+        .unwrap();
+    assert!(
+        !invalid["fields"].as_array().unwrap().is_empty(),
+        "InvalidCharacter should have fields"
+    );
 }
 
 #[test]
 fn test_map_data_enum_uses_data_enum_strategy() {
     let workspace = workspace_root();
-    let fixture = workspace.join("tests").join("fixtures").join("data-structures");
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("data-structures");
 
     // Inspect to get IR
-    let (stdout, _stderr, status) = run_vertumnus(&[
-        "inspect",
-        fixture.to_str().unwrap(),
-    ]);
+    let (stdout, _stderr, status) = run_vertumnus(&["inspect", fixture.to_str().unwrap()]);
     assert!(status.success(), "inspect failed");
 
     // Pipe inspect -> map via a temp file
     let ir_file = temp_out_dir("data-enum-ir").join("ir.json");
     std::fs::write(&ir_file, &stdout).unwrap();
 
-    let (map_stdout, map_stderr, map_status) = run_vertumnus(&[
-        "map",
-        ir_file.to_str().unwrap(),
-    ]);
+    let (map_stdout, map_stderr, map_status) = run_vertumnus(&["map", ir_file.to_str().unwrap()]);
     assert!(map_status.success(), "map failed: {}", map_stderr);
 
     let annotated: serde_json::Value =
         serde_json::from_str(&map_stdout).expect("stdout should be valid JSON");
 
     // Find ValidationError in annotated IR
-    let items = annotated["items"].as_array().expect("items should be an array");
+    let items = annotated["items"]
+        .as_array()
+        .expect("items should be an array");
     let validation_item = items.iter().find(|item| {
         item["original"]["kind"] == "enum" && item["original"]["name"] == "ValidationError"
     });
-    assert!(validation_item.is_some(), "ValidationError should be in annotated IR");
+    assert!(
+        validation_item.is_some(),
+        "ValidationError should be in annotated IR"
+    );
     assert_eq!(
         validation_item.unwrap()["mapping"]["pyo3_strategy"],
         "data_enum",
@@ -696,8 +714,8 @@ fn test_wrap_no_build_data_enum_generates_constructors() {
     );
 
     // Check that generated lib.rs has DataEnum pattern
-    let lib_rs = std::fs::read_to_string(out_dir.join("src").join("lib.rs"))
-        .expect("lib.rs should exist");
+    let lib_rs =
+        std::fs::read_to_string(out_dir.join("src").join("lib.rs")).expect("lib.rs should exist");
     assert!(
         lib_rs.contains("ValidationError"),
         "lib.rs should contain ValidationError"
@@ -720,8 +738,8 @@ fn test_wrap_no_build_data_enum_generates_constructors() {
     );
 
     // Check that .pyi stub has async def
-    let pyi = std::fs::read_to_string(out_dir.join("data_structures.pyi"))
-        .expect("pyi should exist");
+    let pyi =
+        std::fs::read_to_string(out_dir.join("data_structures.pyi")).expect("pyi should exist");
     assert!(
         pyi.contains("class ValidationError:"),
         "pyi should have ValidationError class"
@@ -774,23 +792,22 @@ fn test_map_invalid_json() {
 #[test]
 fn test_inspect_async_function_is_detected() {
     let workspace = workspace_root();
-    let fixture = workspace.join("tests").join("fixtures").join("string-utils");
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("string-utils");
 
-    let (stdout, stderr, status) = run_vertumnus(&[
-        "inspect",
-        "--verbose",
-        fixture.to_str().unwrap(),
-    ]);
+    let (stdout, stderr, status) =
+        run_vertumnus(&["inspect", "--verbose", fixture.to_str().unwrap()]);
     assert!(status.success(), "inspect failed: {}", stderr);
 
-    let ir: serde_json::Value =
-        serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+    let ir: serde_json::Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
 
     // Find the async_greeting function
     let items = ir["items"].as_array().expect("items should be an array");
-    let async_fn = items.iter().find(|item| {
-        item["kind"] == "function" && item["name"] == "async_greeting"
-    });
+    let async_fn = items
+        .iter()
+        .find(|item| item["kind"] == "function" && item["name"] == "async_greeting");
     assert!(
         async_fn.is_some(),
         "async_greeting function should be in IR"
@@ -805,29 +822,28 @@ fn test_inspect_async_function_is_detected() {
 #[test]
 fn test_map_async_function_uses_async_wrapper_strategy() {
     let workspace = workspace_root();
-    let fixture = workspace.join("tests").join("fixtures").join("string-utils");
+    let fixture = workspace
+        .join("tests")
+        .join("fixtures")
+        .join("string-utils");
 
     // First inspect to get IR
-    let (stdout, _stderr, status) = run_vertumnus(&[
-        "inspect",
-        fixture.to_str().unwrap(),
-    ]);
+    let (stdout, _stderr, status) = run_vertumnus(&["inspect", fixture.to_str().unwrap()]);
     assert!(status.success(), "inspect failed");
 
     // Pipe inspect -> map via a temp file
     let ir_file = temp_out_dir("async-ir").join("ir.json");
     std::fs::write(&ir_file, &stdout).unwrap();
 
-    let (map_stdout, map_stderr, map_status) = run_vertumnus(&[
-        "map",
-        ir_file.to_str().unwrap(),
-    ]);
+    let (map_stdout, map_stderr, map_status) = run_vertumnus(&["map", ir_file.to_str().unwrap()]);
     assert!(map_status.success(), "map failed: {}", map_stderr);
 
     let annotated: serde_json::Value =
         serde_json::from_str(&map_stdout).expect("stdout should be valid JSON");
 
-    let items = annotated["items"].as_array().expect("items should be an array");
+    let items = annotated["items"]
+        .as_array()
+        .expect("items should be an array");
     let async_item = items.iter().find(|item| {
         item["original"]["kind"] == "function" && item["original"]["name"] == "async_greeting"
     });
@@ -873,8 +889,8 @@ fn test_wrap_no_build_async_generates_pyo3_asyncio_dep() {
     );
 
     // Check that Cargo.toml includes pyo3-asyncio
-    let cargo_toml = std::fs::read_to_string(out_dir.join("Cargo.toml"))
-        .expect("Cargo.toml should exist");
+    let cargo_toml =
+        std::fs::read_to_string(out_dir.join("Cargo.toml")).expect("Cargo.toml should exist");
     assert!(
         cargo_toml.contains("pyo3-asyncio"),
         "Cargo.toml should contain pyo3-asyncio dependency: {}",
@@ -882,8 +898,8 @@ fn test_wrap_no_build_async_generates_pyo3_asyncio_dep() {
     );
 
     // Check that generated lib.rs has future_into_py import
-    let lib_rs = std::fs::read_to_string(out_dir.join("src").join("lib.rs"))
-        .expect("lib.rs should exist");
+    let lib_rs =
+        std::fs::read_to_string(out_dir.join("src").join("lib.rs")).expect("lib.rs should exist");
     assert!(
         lib_rs.contains("future_into_py"),
         "lib.rs should import future_into_py"
@@ -894,8 +910,7 @@ fn test_wrap_no_build_async_generates_pyo3_asyncio_dep() {
     );
 
     // Check that .pyi stub has async def
-    let pyi = std::fs::read_to_string(out_dir.join("string_utils.pyi"))
-        .expect("pyi should exist");
+    let pyi = std::fs::read_to_string(out_dir.join("string_utils.pyi")).expect("pyi should exist");
     assert!(
         pyi.contains("async def async_greeting"),
         "pyi should have async def for async_greeting"
@@ -911,10 +926,7 @@ fn test_wrap_no_build_async_generates_pyo3_asyncio_dep() {
 #[test]
 fn test_batch_wrap_multiple_crates() {
     let workspace = workspace_root();
-    let simple_math = workspace
-        .join("tests")
-        .join("fixtures")
-        .join("simple-math");
+    let simple_math = workspace.join("tests").join("fixtures").join("simple-math");
     let string_utils = workspace
         .join("tests")
         .join("fixtures")
@@ -936,11 +948,7 @@ fn test_batch_wrap_multiple_crates() {
         "--no-build",
         "--overwrite",
     ]);
-    assert!(
-        status.success(),
-        "batch wrap failed: {}",
-        stderr
-    );
+    assert!(status.success(), "batch wrap failed: {}", stderr);
 
     // Check that both crate outputs exist (named py-<directory_name>)
     let simple_math_out = out_dir.join("py-simple-math");
@@ -958,7 +966,10 @@ fn test_batch_wrap_multiple_crates() {
     );
 
     // Check for summary in stderr
-    assert!(stderr.contains("Batch wrap summary"), "stderr should contain summary");
+    assert!(
+        stderr.contains("Batch wrap summary"),
+        "stderr should contain summary"
+    );
     assert!(stderr.contains("Success: 2"), "should report 2 successes");
 
     let _ = std::fs::remove_dir_all(&out_dir);
@@ -967,10 +978,7 @@ fn test_batch_wrap_multiple_crates() {
 #[test]
 fn test_batch_wrap_empty_paths_error() {
     let (_stdout, stderr, status) = run_vertumnus(&["batch", "wrap"]);
-    assert!(
-        !status.success(),
-        "batch wrap with no paths should fail"
-    );
+    assert!(!status.success(), "batch wrap with no paths should fail");
     assert!(
         stderr.contains("No crate paths provided"),
         "should give helpful error message"
@@ -980,11 +988,11 @@ fn test_batch_wrap_empty_paths_error() {
 #[test]
 fn test_batch_wrap_keep_going() {
     let workspace = workspace_root();
-    let simple_math = workspace
+    let simple_math = workspace.join("tests").join("fixtures").join("simple-math");
+    let nonexistent = workspace
         .join("tests")
         .join("fixtures")
-        .join("simple-math");
-    let nonexistent = workspace.join("tests").join("fixtures").join("nonexistent-crate");
+        .join("nonexistent-crate");
 
     let out_dir = temp_out_dir("batch-keep-going");
 
@@ -1023,10 +1031,7 @@ fn test_batch_wrap_keep_going() {
 #[test]
 fn test_batch_wrap_rejects_duplicate_output() {
     let workspace = workspace_root();
-    let simple_math = workspace
-        .join("tests")
-        .join("fixtures")
-        .join("simple-math");
+    let simple_math = workspace.join("tests").join("fixtures").join("simple-math");
 
     let out_dir = temp_out_dir("batch-duplicate");
 
@@ -1055,7 +1060,10 @@ fn test_batch_wrap_rejects_duplicate_output() {
         !status.success(),
         "second batch wrap without --overwrite should fail"
     );
-    assert!(stderr.contains("exists") || stderr.contains("exist"), "should mention existing output");
+    assert!(
+        stderr.contains("exists") || stderr.contains("exist"),
+        "should mention existing output"
+    );
 
     let _ = std::fs::remove_dir_all(&out_dir);
 }

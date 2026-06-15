@@ -90,6 +90,7 @@ mod tests {
                     is_async: false,
                     has_generics: false,
                     visibility: "public".to_string(),
+                    generic_params: vec![],
                 }),
                 IrItem::Struct(StructItem {
                     kind: IrItemKind::Struct,
@@ -110,6 +111,7 @@ mod tests {
                     methods: vec![],
                     has_lifetimes: false,
                     has_generics: false,
+                    generic_params: vec![],
                 }),
                 IrItem::Enum(EnumItem {
                     kind: IrItemKind::Enum,
@@ -130,6 +132,7 @@ mod tests {
                     methods: vec![],
                     has_lifetimes: false,
                     has_generics: false,
+                    generic_params: vec![],
                 }),
             ],
         };

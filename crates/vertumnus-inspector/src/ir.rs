@@ -77,6 +77,9 @@ pub struct FunctionItem {
     pub has_generics: bool,
     #[serde(default)]
     pub visibility: String,
+    /// Names of generic type parameters (e.g., ["T", "U"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generic_params: Vec<String>,
 }
 
 /// A struct item in the IR.
@@ -93,6 +96,9 @@ pub struct StructItem {
     pub has_lifetimes: bool,
     #[serde(default)]
     pub has_generics: bool,
+    /// Names of generic type parameters (e.g., ["T", "U"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generic_params: Vec<String>,
 }
 
 /// An enum item in the IR.
@@ -109,6 +115,9 @@ pub struct EnumItem {
     pub has_lifetimes: bool,
     #[serde(default)]
     pub has_generics: bool,
+    /// Names of generic type parameters (e.g., ["T", "U"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generic_params: Vec<String>,
 }
 
 /// A trait item in the IR (informational only; limited binding generation).
@@ -293,6 +302,7 @@ mod tests {
                 is_async: false,
                 has_generics: false,
                 visibility: "public".to_string(),
+                generic_params: vec![],
             })],
         };
 

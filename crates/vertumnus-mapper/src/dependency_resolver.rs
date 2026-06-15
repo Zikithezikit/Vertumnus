@@ -330,9 +330,6 @@ version = "2.3.4"
     #[test]
     fn test_extract_crate_name_with_hyphen() {
         // Crate names can contain hyphens
-        assert_eq!(
-            extract_crate_name("my-crate::SomeType"),
-            Some("my-crate")
-        );
+        assert_eq!(extract_crate_name("my-crate::SomeType"), Some("my-crate"));
     }
 }

@@ -257,7 +257,10 @@ enum RegistryAction {
 /// Load a Vertumnus config from an optional `--config` path.
 /// If `None`, tries to auto-detect `.vertumnus/config.toml` in the crate dir.
 /// Returns `None` if neither exists (not an error).
-fn load_config(config_path: Option<&Path>, crate_dir: &Path) -> anyhow::Result<Option<VertumnusConfig>> {
+fn load_config(
+    config_path: Option<&Path>,
+    crate_dir: &Path,
+) -> anyhow::Result<Option<VertumnusConfig>> {
     match config_path {
         Some(path) => {
             let resolved = if path.is_relative() {
@@ -279,7 +282,10 @@ fn load_config(config_path: Option<&Path>, crate_dir: &Path) -> anyhow::Result<O
             // Auto-detect .vertumnus/config.toml in crate directory
             match VertumnusConfig::auto_detect(crate_dir)? {
                 Some(config) => {
-                    eprintln!("📋 Auto-detected config: {}/.vertumnus/config.toml", crate_dir.display());
+                    eprintln!(
+                        "📋 Auto-detected config: {}/.vertumnus/config.toml",
+                        crate_dir.display()
+                    );
                     Ok(Some(config))
                 }
                 None => Ok(None),
@@ -421,11 +427,7 @@ fn run_wrap(opts: &WrapOptions) -> Result<BatchCrateResult, anyhow::Error> {
             eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
         }
         let config = load_config(config_path.as_deref(), &path)?;
-        vertumnus_mapper::map_ir_with_full_context(
-            &ir,
-            config.as_ref(),
-            Some(&canonical_path),
-        )?
+        vertumnus_mapper::map_ir_with_full_context(&ir, config.as_ref(), Some(&canonical_path))?
     };
 
     if dry_run {
@@ -528,9 +530,8 @@ fn run_wrap(opts: &WrapOptions) -> Result<BatchCrateResult, anyhow::Error> {
     }
 
     // Read the actual crate name from Cargo.toml (preserves hyphens)
-    let original_crate_name =
-        vertumnus_builder::read_crate_name(&canonical_path)
-            .unwrap_or_else(|_| ir.crate_name.clone());
+    let original_crate_name = vertumnus_builder::read_crate_name(&canonical_path)
+        .unwrap_or_else(|_| ir.crate_name.clone());
 
     let builder_config = vertumnus_builder::BuilderConfig {
         output_dir: out_path.clone(),
@@ -655,18 +656,10 @@ fn main() -> anyhow::Result<()> {
                     let total = expanded_paths.len();
                     let mut results: Vec<BatchCrateResult> = Vec::with_capacity(total);
 
-                    eprintln!(
-                        "📦 Batch wrapping {} crate(s)...",
-                        total
-                    );
+                    eprintln!("📦 Batch wrapping {} crate(s)...", total);
 
                     for (i, crate_path) in expanded_paths.iter().enumerate() {
-                        eprintln!(
-                            "\n[{}/{}] Wrapping: {}",
-                            i + 1,
-                            total,
-                            crate_path.display()
-                        );
+                        eprintln!("\n[{}/{}] Wrapping: {}", i + 1, total, crate_path.display());
 
                         // For batch mode, determine output directory per crate
                         let crate_out = out_dir.as_ref().map(|root| {
@@ -702,7 +695,12 @@ fn main() -> anyhow::Result<()> {
                             }
                             Err(e) => {
                                 if keep_going {
-                                    eprintln!("❌ [{}/{}] {} — failed: {e}", i + 1, total, crate_path.display());
+                                    eprintln!(
+                                        "❌ [{}/{}] {} — failed: {e}",
+                                        i + 1,
+                                        total,
+                                        crate_path.display()
+                                    );
                                     results.push(BatchCrateResult {
                                         crate_name: crate_path
                                             .file_name()
@@ -713,7 +711,12 @@ fn main() -> anyhow::Result<()> {
                                         ..Default::default()
                                     });
                                 } else {
-                                    eprintln!("❌ [{}/{}] {} — failed: {e}", i + 1, total, crate_path.display());
+                                    eprintln!(
+                                        "❌ [{}/{}] {} — failed: {e}",
+                                        i + 1,
+                                        total,
+                                        crate_path.display()
+                                    );
                                     eprintln!("💡 Use --keep-going to continue wrapping remaining crates.");
                                     return Err(e);
                                 }
@@ -723,8 +726,14 @@ fn main() -> anyhow::Result<()> {
 
                     // Print summary
                     eprintln!("\n📊 Batch wrap summary:");
-                    let successes = results.iter().filter(|r| matches!(r.status, BatchStatus::Success)).count();
-                    let failures = results.iter().filter(|r| matches!(r.status, BatchStatus::Failed)).count();
+                    let successes = results
+                        .iter()
+                        .filter(|r| matches!(r.status, BatchStatus::Success))
+                        .count();
+                    let failures = results
+                        .iter()
+                        .filter(|r| matches!(r.status, BatchStatus::Failed))
+                        .count();
                     let total_warnings: usize = results.iter().map(|r| r.warning_count).sum();
 
                     eprintln!("   Total: {total}, Success: {successes}, Failed: {failures}, Warnings: {total_warnings}");
@@ -740,7 +749,10 @@ fn main() -> anyhow::Result<()> {
                             .as_ref()
                             .map(|d| d.display().to_string())
                             .unwrap_or_default();
-                        eprintln!("   {icon} {} — warnings: {} — output: {}", r.crate_name, r.warning_count, out_str);
+                        eprintln!(
+                            "   {icon} {} — warnings: {} — output: {}",
+                            r.crate_name, r.warning_count, out_str
+                        );
                         if let Some(err) = &r.error {
                             eprintln!("       error: {err}");
                         }
@@ -866,7 +878,10 @@ fn main() -> anyhow::Result<()> {
                             // Save to default cache location
                             let cache_dir = registry::config_dir();
                             registry::save_registry_cache(&result.mappings, &cache_dir)?;
-                            eprintln!("✅ Registry cached at: {}/community_registry.toml", cache_dir.display());
+                            eprintln!(
+                                "✅ Registry cached at: {}/community_registry.toml",
+                                cache_dir.display()
+                            );
                         }
                     }
                 }
@@ -968,7 +983,11 @@ fn main() -> anyhow::Result<()> {
                         std::fs::write(&config_path, &content)?;
                     }
 
-                    eprintln!("✅ Applied {} mappings to {}", mappings.len(), config_path.display());
+                    eprintln!(
+                        "✅ Applied {} mappings to {}",
+                        mappings.len(),
+                        config_path.display()
+                    );
                 }
                 RegistryAction::Add {
                     rust_type,
@@ -977,7 +996,10 @@ fn main() -> anyhow::Result<()> {
                     config,
                 } => {
                     if verbose {
-                        eprintln!("➕ Adding mapping: {} → {} (strategy: {})", rust_type, python_type, strategy);
+                        eprintln!(
+                            "➕ Adding mapping: {} → {} (strategy: {})",
+                            rust_type, python_type, strategy
+                        );
                     }
 
                     let config_path = match config {
@@ -985,7 +1007,12 @@ fn main() -> anyhow::Result<()> {
                         None => PathBuf::from(".vertumnus/config.toml"),
                     };
 
-                    registry::add_mapping_to_config(&rust_type, &python_type, &strategy, &config_path)?;
+                    registry::add_mapping_to_config(
+                        &rust_type,
+                        &python_type,
+                        &strategy,
+                        &config_path,
+                    )?;
                     eprintln!("✅ Mapping added to: {}", config_path.display());
                 }
             }

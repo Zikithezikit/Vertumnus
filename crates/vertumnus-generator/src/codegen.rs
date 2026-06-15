@@ -413,16 +413,23 @@ pub fn generate_struct_wrapper(
     }
 
     // Struct definition with inner wrapper
+    // If generics were erased (PhantomData-only), fill erased params with ()
+    let inner_type_ref = if s.has_generics && !s.generic_params.is_empty() {
+        let erased_args: Vec<String> = s.generic_params.iter().map(|_| "()".to_string()).collect();
+        format!("{}<{}>", s.name, erased_args.join(", "))
+    } else {
+        s.name.clone()
+    };
     code.push_str(&format!("pub struct {} {{\n", s.name));
-    code.push_str("    inner: _crate::");
-    code.push_str(&s.name);
-    code.push_str(",\n}\n\n");
+    code.push_str(&format!("    inner: _crate::{},\n", inner_type_ref));
+    code.push_str("}\n\n");
 
-    // Generate property getters for public fields
+    // Generate property getters for public fields (skip PhantomData — no runtime representation)
     let public_fields: Vec<&StructField> = s
         .fields
         .iter()
         .filter(|f| f.visibility == FieldVisibility::Public)
+        .filter(|f| !is_phantom_data_type(&f.type_str))
         .collect();
 
     // Collect method names to avoid duplicate getter names.
@@ -633,11 +640,7 @@ pub fn generate_enum_wrapper(
                         format!("{}: {}", f.name, py_type)
                     })
                     .collect();
-                let args: Vec<String> = variant
-                    .fields
-                    .iter()
-                    .map(|f| f.name.clone())
-                    .collect();
+                let args: Vec<String> = variant.fields.iter().map(|f| f.name.clone()).collect();
                 code.push_str(&format!(
                     "    #[staticmethod]\n    pub fn {}({}) -> Self {{\n        Self {{ inner: _crate::{}::{}({}) }}\n    }}\n\n",
                     variant_lower,
@@ -647,11 +650,8 @@ pub fn generate_enum_wrapper(
                     args.join(", ")
                 ));
                 // For data variants, use a placeholder pattern matching all variants of that name
-                let underscore_args: Vec<String> = variant
-                    .fields
-                    .iter()
-                    .map(|_| "_".to_string())
-                    .collect();
+                let underscore_args: Vec<String> =
+                    variant.fields.iter().map(|_| "_".to_string()).collect();
                 code.push_str(&format!(
                     "    pub fn is_{}(&self) -> bool {{\n        matches!(self.inner, _crate::{}::{}({}))\n    }}\n\n",
                     variant_lower,
@@ -1229,6 +1229,16 @@ fn is_generic_field(type_str: &str) -> bool {
     }
     false
 }
+
+/// Check if a type string is `PhantomData<T>`, which has no runtime representation.
+fn is_phantom_data_type(type_str: &str) -> bool {
+    let trimmed = type_str.trim();
+    trimmed == "PhantomData"
+        || trimmed.starts_with("PhantomData<")
+        || trimmed.contains("::PhantomData<")
+        || trimmed.ends_with("::PhantomData")
+}
+
 fn ir_type_to_pyo3_type(type_str: &str) -> String {
     let s = type_str.trim();
 
@@ -1453,7 +1463,9 @@ pub fn to_snake_case(name: &str) -> String {
         if c.is_uppercase() && i > 0 {
             let prev = chars[i - 1];
             let next = chars.get(i + 1);
-            if prev.is_lowercase() || (prev.is_uppercase() && next.is_some_and(|n| n.is_lowercase())) {
+            if prev.is_lowercase()
+                || (prev.is_uppercase() && next.is_some_and(|n| n.is_lowercase()))
+            {
                 result.push('_');
             }
         }
@@ -1489,6 +1501,7 @@ mod tests {
                 is_async: false,
                 has_generics: false,
                 visibility: "public".to_string(),
+                generic_params: vec![],
             },
             strategy,
         )
@@ -1557,6 +1570,7 @@ mod tests {
                 is_async: false,
                 has_generics: false,
                 visibility: "public".to_string(),
+                generic_params: vec![],
             }
         };
 
@@ -1618,6 +1632,7 @@ mod tests {
             is_async: false,
             has_generics: false,
             visibility: "public".to_string(),
+            generic_params: vec![],
         };
 
         let mapping = TypeMapping {
@@ -1648,6 +1663,7 @@ mod tests {
             is_async: false,
             has_generics: false,
             visibility: "public".to_string(),
+            generic_params: vec![],
         };
 
         let mapping = TypeMapping {
@@ -1687,6 +1703,7 @@ mod tests {
             is_async: false,
             has_generics: false,
             visibility: "public".to_string(),
+            generic_params: vec![],
         };
 
         let mapping = TypeMapping {
@@ -1722,6 +1739,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: false,
+            generic_params: vec![],
         };
 
         let mapping = TypeMapping {
@@ -1769,6 +1787,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: false,
+            generic_params: vec![],
         };
 
         let mapping = TypeMapping {
@@ -1798,6 +1817,7 @@ mod tests {
             methods: vec![],
             has_lifetimes: false,
             has_generics: false,
+            generic_params: vec![],
         };
 
         let methods = vec![

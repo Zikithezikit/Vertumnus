@@ -607,7 +607,10 @@ fn try_parse_generic(
     let args_str = &s[angle_start + 1..close_pos].trim();
 
     let args = split_type_args(args_str);
-    let mapped_args: Vec<MappedType> = args.iter().map(|a| map_type_with_full_context(a.trim(), location, config, deps)).collect();
+    let mapped_args: Vec<MappedType> = args
+        .iter()
+        .map(|a| map_type_with_full_context(a.trim(), location, config, deps))
+        .collect();
     let mut all_warnings: Vec<MappingWarning> = mapped_args
         .iter()
         .flat_map(|m| m.warnings.clone())
@@ -798,6 +801,14 @@ fn try_parse_generic(
                 python_type: "range".to_string(),
                 pyo3_strategy: PyO3Strategy::Native,
                 warnings: all_warnings,
+            })
+        }
+        // PhantomData — no runtime representation, silently skip
+        "PhantomData" => {
+            Some(MappedType {
+                python_type: "None".to_string(),
+                pyo3_strategy: PyO3Strategy::Native,
+                warnings: Vec::new(), // Suppress inner type warnings — PhantomData is always OK
             })
         }
         // Generic named type: e.g., MyStruct<T> — treat as the base name with pyclass
@@ -1434,7 +1445,10 @@ mod tests {
         assert_eq!(result.python_type, "MyWrapped");
         assert_eq!(result.pyo3_strategy, PyO3Strategy::PyClass);
         // Should still have warning about type parameters being lost
-        assert!(result.warnings.iter().any(|w| w.message.contains("type parameters")));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("type parameters")));
     }
 
     // -----------------------------------------------------------------------
@@ -1465,12 +1479,18 @@ mod tests {
             "Dependency types should fall back to typing.Any"
         );
         assert!(
-            result.warnings.iter().any(|w| w.message.contains("dependency")),
+            result
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("dependency")),
             "Should have a dependency warning, got: {:?}",
             result.warnings
         );
         assert!(
-            result.warnings.iter().any(|w| w.message.contains("url v2.3.4")),
+            result
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("url v2.3.4")),
             "Should mention the dependency version, got: {:?}",
             result.warnings
         );
@@ -1484,19 +1504,12 @@ mod tests {
         let mut info = CargoLockInfo::default();
         info.add_dep("serde", "1.0.188");
 
-        let result = map_type_with_full_context(
-            "serde::Serialize",
-            "test",
-            None,
-            Some(&info),
-        );
-        assert_eq!(
-            result.pyo3_strategy,
-            PyO3Strategy::ManualStub,
-        );
-        assert!(
-            result.warnings.iter().any(|w| w.message.contains("dependency")),
-        );
+        let result = map_type_with_full_context("serde::Serialize", "test", None, Some(&info));
+        assert_eq!(result.pyo3_strategy, PyO3Strategy::ManualStub,);
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("dependency")),);
     }
 
     #[test]
@@ -1506,12 +1519,8 @@ mod tests {
 
         let info = CargoLockInfo::default();
 
-        let result = map_type_with_full_context(
-            "std::collections::HashMap",
-            "test",
-            None,
-            Some(&info),
-        );
+        let result =
+            map_type_with_full_context("std::collections::HashMap", "test", None, Some(&info));
         assert_eq!(
             result.pyo3_strategy,
             PyO3Strategy::PyClass,
@@ -1526,12 +1535,8 @@ mod tests {
 
         let info = CargoLockInfo::default();
 
-        let result = map_type_with_full_context(
-            "unknown_crate::SomeType",
-            "test",
-            None,
-            Some(&info),
-        );
+        let result =
+            map_type_with_full_context("unknown_crate::SomeType", "test", None, Some(&info));
         assert_eq!(
             result.pyo3_strategy,
             PyO3Strategy::PyClass,
@@ -1563,12 +1568,7 @@ mod tests {
         let mut info = CargoLockInfo::default();
         info.add_dep("url", "2.3.4");
 
-        let result = map_type_with_full_context(
-            "url::Url",
-            "test",
-            Some(&config),
-            Some(&info),
-        );
+        let result = map_type_with_full_context("url::Url", "test", Some(&config), Some(&info));
         // Config mapping should take priority over dependency fallback
         assert_eq!(
             result.python_type, "str",
@@ -1576,7 +1576,10 @@ mod tests {
         );
         assert_eq!(result.pyo3_strategy, PyO3Strategy::Native);
         assert!(
-            !result.warnings.iter().any(|w| w.message.contains("dependency")),
+            !result
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("dependency")),
             "Should not have dependency warning when config provides mapping"
         );
     }
