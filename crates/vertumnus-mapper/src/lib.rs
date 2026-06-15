@@ -16,11 +16,13 @@
 
 pub mod annotated_ir;
 pub mod config;
+pub mod dependency_resolver;
 pub mod mapper;
 pub mod monomorphization;
 pub mod type_parser;
 
 pub use annotated_ir::{AnnotatedIr, AnnotatedItem, MappingWarning, PyO3Strategy, TypeMapping};
 pub use config::{VertumnusConfig, TypeMappingEntry};
-pub use mapper::{map_ir, map_ir_with_config, MapError};
+pub use dependency_resolver::{load_cargo_lock, CargoLockInfo};
+pub use mapper::{map_ir, map_ir_with_config, map_ir_with_full_context, MapError};
 pub use type_parser::{map_named_type, map_type, map_type_with_config, MappedType};

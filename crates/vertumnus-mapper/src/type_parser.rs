@@ -6,6 +6,7 @@
 
 use crate::annotated_ir::{MappingWarning, PyO3Strategy};
 use crate::config::VertumnusConfig;
+use crate::dependency_resolver::{self, CargoLockInfo};
 
 /// Result of mapping a single Rust type string to Python.
 #[derive(Debug, Clone, PartialEq)]
@@ -234,6 +235,21 @@ pub fn map_type_with_config(
     location: &str,
     config: Option<&VertumnusConfig>,
 ) -> MappedType {
+    map_type_with_full_context(type_str, location, config, None)
+}
+
+/// Map a Rust type string with full context (config + dependency info).
+///
+/// Extends [`map_type_with_config`] with dependency-aware fallback.
+/// When a fully-qualified type like `url::Url` is encountered and not found
+/// in the config, this function checks `Cargo.lock` to identify it as a
+/// known dependency and produces a more informative fallback.
+pub fn map_type_with_full_context(
+    type_str: &str,
+    location: &str,
+    config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
+) -> MappedType {
     let trimmed = trim_type(type_str);
 
     // Handle unit type and never type
@@ -256,7 +272,6 @@ pub fn map_type_with_config(
 
     // Check for lifetimes — warn but still try to parse
     if has_lifetime(trimmed) && !trimmed.starts_with("&'") {
-        // Lifetime in a non-reference position (e.g., type with lifetime param)
         return MappedType::with_warning(
             "typing.Any",
             PyO3Strategy::ManualStub,
@@ -266,7 +281,7 @@ pub fn map_type_with_config(
     }
 
     // Reference types: &T, &mut T, &'a T, &'a mut T
-    if let Some(result) = try_parse_reference(trimmed, location, config) {
+    if let Some(result) = try_parse_reference(trimmed, location, config, deps) {
         return result;
     }
 
@@ -296,21 +311,21 @@ pub fn map_type_with_config(
 
     // Tuple types: (A, B, ...)
     if trimmed.starts_with('(') {
-        return parse_tuple(trimmed, location, config);
+        return parse_tuple(trimmed, location, config, deps);
     }
 
     // Slice types: [T] or [T; N]
     if trimmed.starts_with('[') {
-        return parse_slice_or_array(trimmed, location, config);
+        return parse_slice_or_array(trimmed, location, config, deps);
     }
 
     // Fn pointer types: fn(...) -> ...
     if trimmed.starts_with("fn(") {
-        return parse_fn_pointer(trimmed, location, config);
+        return parse_fn_pointer(trimmed, location, config, deps);
     }
 
     // Generic type: Vec<T>, Option<T>, Result<T,E>, HashMap<K,V>, etc.
-    if let Some(result) = try_parse_generic(trimmed, location, config) {
+    if let Some(result) = try_parse_generic(trimmed, location, config, deps) {
         return result;
     }
 
@@ -336,10 +351,10 @@ pub fn map_type_with_config(
 
     // Function item types like `fn(usize) -> usize {main}`
     if trimmed.contains("{") && trimmed.starts_with("fn(") {
-        return parse_fn_pointer(trimmed, location, config);
+        return parse_fn_pointer(trimmed, location, config, deps);
     }
 
-    // NEW: Check config registry before falling back to default PyClass
+    // Check config registry before falling back to default PyClass
     if let Some(cfg) = config {
         if let Some(entry) = cfg.lookup(trimmed) {
             let strategy = VertumnusConfig::parse_strategy(&entry.strategy);
@@ -348,6 +363,22 @@ pub fn map_type_with_config(
                 pyo3_strategy: strategy,
                 warnings: Vec::new(),
             };
+        }
+    }
+
+    // ---- A3: Dependency-aware fallback ----
+    // If this type looks like it belongs to a dependency crate, emit a more
+    // informative warning and use Bound<'_, PyAny> instead of PyClass.
+    if let Some(crate_name) = dependency_resolver::extract_crate_name(trimmed) {
+        if let Some(dep_info) = deps.and_then(|d| d.get_dep(crate_name)) {
+            // It's a known dependency type — emit a helpful warning
+            let (_, py_type) = dependency_resolver::dependency_fallback_type();
+            return MappedType::with_warning(
+                py_type,
+                PyO3Strategy::ManualStub,
+                dependency_resolver::format_dependency_warning(trimmed, Some(dep_info), None),
+                location,
+            );
         }
     }
 
@@ -364,6 +395,7 @@ fn try_parse_reference(
     type_str: &str,
     location: &str,
     config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
 ) -> Option<MappedType> {
     let s = trim_type(type_str);
     if !s.starts_with('&') {
@@ -388,7 +420,7 @@ fn try_parse_reference(
             (false, after_lifetime)
         };
 
-        let inner_mapped = map_type_with_config(rest, location, config);
+        let inner_mapped = map_type_with_full_context(rest, location, config, deps);
         let mut result = MappedType::new(inner_mapped.python_type.clone(), PyO3Strategy::Native);
         result.merge_warnings(&inner_mapped.warnings);
         result.warnings.push(MappingWarning {
@@ -404,14 +436,14 @@ fn try_parse_reference(
     // &mut T
     if let Some(rest) = inner.strip_prefix("mut ") {
         let rest = rest.trim();
-        let inner_mapped = map_type_with_config(rest, location, config);
+        let inner_mapped = map_type_with_full_context(rest, location, config, deps);
         let mut result = MappedType::new(inner_mapped.python_type.clone(), PyO3Strategy::Native);
         result.merge_warnings(&inner_mapped.warnings);
         return Some(result);
     }
 
     // &T (shared reference, including &str which is handled above)
-    let inner_mapped = map_type_with_config(inner, location, config);
+    let inner_mapped = map_type_with_full_context(inner, location, config, deps);
     let mut result = MappedType::new(inner_mapped.python_type.clone(), PyO3Strategy::Native);
     result.merge_warnings(&inner_mapped.warnings);
     Some(result)
@@ -422,6 +454,7 @@ fn parse_tuple(
     type_str: &str,
     location: &str,
     config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
 ) -> MappedType {
     let s = trim_type(type_str);
     debug_assert!(s.starts_with('(') && s.ends_with(')'));
@@ -436,7 +469,7 @@ fn parse_tuple(
     let mut all_warnings = Vec::new();
 
     for arg in args {
-        let mapped = map_type_with_config(arg, location, config);
+        let mapped = map_type_with_full_context(arg, location, config, deps);
         all_warnings.extend(mapped.warnings);
         mapped_args.push(mapped.python_type);
     }
@@ -454,6 +487,7 @@ fn parse_slice_or_array(
     type_str: &str,
     location: &str,
     config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
 ) -> MappedType {
     let s = trim_type(type_str);
     debug_assert!(s.starts_with('['));
@@ -466,7 +500,7 @@ fn parse_slice_or_array(
         // It's an array: [T; N]
         let element_type = &inner[..semi_pos].trim();
         let _len = &inner[semi_pos + 2..].trim();
-        let mapped = map_type_with_config(element_type, location, config);
+        let mapped = map_type_with_full_context(element_type, location, config, deps);
         let mut result = MappedType::new(
             format!("list[{}]", mapped.python_type),
             PyO3Strategy::Native,
@@ -482,7 +516,7 @@ fn parse_slice_or_array(
         result
     } else {
         // It's a slice: [T]
-        let mapped = map_type_with_config(inner, location, config);
+        let mapped = map_type_with_full_context(inner, location, config, deps);
         let mut result = MappedType::new(
             format!("list[{}]", mapped.python_type),
             PyO3Strategy::Native,
@@ -497,6 +531,7 @@ fn parse_fn_pointer(
     type_str: &str,
     location: &str,
     config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
 ) -> MappedType {
     let s = trim_type(type_str);
 
@@ -526,7 +561,7 @@ fn parse_fn_pointer(
         split_type_args(args_str)
             .iter()
             .map(|a| {
-                let mapped = map_type_with_config(a.trim(), location, config);
+                let mapped = map_type_with_full_context(a.trim(), location, config, deps);
                 all_warnings.extend(mapped.warnings);
                 mapped.python_type
             })
@@ -534,7 +569,7 @@ fn parse_fn_pointer(
     };
 
     let py_return = if let Some(ret) = return_str.strip_prefix("-> ") {
-        let mapped = map_type_with_config(ret.trim(), location, config);
+        let mapped = map_type_with_full_context(ret.trim(), location, config, deps);
         all_warnings.extend(mapped.warnings);
         mapped.python_type
     } else {
@@ -559,6 +594,7 @@ fn try_parse_generic(
     type_str: &str,
     location: &str,
     config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
 ) -> Option<MappedType> {
     let s = trim_type(type_str);
 
@@ -571,7 +607,7 @@ fn try_parse_generic(
     let args_str = &s[angle_start + 1..close_pos].trim();
 
     let args = split_type_args(args_str);
-    let mapped_args: Vec<MappedType> = args.iter().map(|a| map_type_with_config(a.trim(), location, config)).collect();
+    let mapped_args: Vec<MappedType> = args.iter().map(|a| map_type_with_full_context(a.trim(), location, config, deps)).collect();
     let mut all_warnings: Vec<MappingWarning> = mapped_args
         .iter()
         .flat_map(|m| m.warnings.clone())
@@ -795,6 +831,28 @@ fn try_parse_generic(
                             location: location.to_string(),
                         });
                     }
+                    return Some(result);
+                }
+            }
+
+            // ---- A3: Dependency-aware fallback for generic types ----
+            // Check if the base name looks like a dependency type
+            if let Some(crate_name) = dependency_resolver::extract_crate_name(base_name) {
+                if let Some(dep_info) = deps.and_then(|d| d.get_dep(crate_name)) {
+                    let (_, py_type) = dependency_resolver::dependency_fallback_type();
+                    let mut result = MappedType {
+                        python_type: py_type.to_string(),
+                        pyo3_strategy: PyO3Strategy::ManualStub,
+                        warnings: all_warnings,
+                    };
+                    result.warnings.push(MappingWarning {
+                        message: dependency_resolver::format_dependency_warning(
+                            type_str,
+                            Some(dep_info),
+                            None,
+                        ),
+                        location: location.to_string(),
+                    });
                     return Some(result);
                 }
             }
@@ -1370,6 +1428,149 @@ mod tests {
         assert_eq!(result.pyo3_strategy, PyO3Strategy::PyClass);
         // Should still have warning about type parameters being lost
         assert!(result.warnings.iter().any(|w| w.message.contains("type parameters")));
+    }
+
+    // -----------------------------------------------------------------------
+    // Dependency-aware fallback tests (A3)
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Dependency-aware fallback tests (A3)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_map_dependency_type_fallback() {
+        // Test that a fully-qualified type from a known dependency produces
+        // a dependency warning with Bound<'_, PyAny> fallback
+        use crate::dependency_resolver::CargoLockInfo;
+
+        let mut info = CargoLockInfo::default();
+        info.add_dep("url", "2.3.4");
+
+        let result = map_type_with_full_context("url::Url", "test", None, Some(&info));
+        assert_eq!(
+            result.pyo3_strategy,
+            PyO3Strategy::ManualStub,
+            "Dependency types should get ManualStub"
+        );
+        assert_eq!(
+            result.python_type, "typing.Any",
+            "Dependency types should fall back to typing.Any"
+        );
+        assert!(
+            result.warnings.iter().any(|w| w.message.contains("dependency")),
+            "Should have a dependency warning, got: {:?}",
+            result.warnings
+        );
+        assert!(
+            result.warnings.iter().any(|w| w.message.contains("url v2.3.4")),
+            "Should mention the dependency version, got: {:?}",
+            result.warnings
+        );
+    }
+
+    #[test]
+    fn test_map_dependency_type_generic_fallback() {
+        // Test that a type from a known dependency gets the fallback
+        use crate::dependency_resolver::CargoLockInfo;
+
+        let mut info = CargoLockInfo::default();
+        info.add_dep("serde", "1.0.188");
+
+        let result = map_type_with_full_context(
+            "serde::Serialize",
+            "test",
+            None,
+            Some(&info),
+        );
+        assert_eq!(
+            result.pyo3_strategy,
+            PyO3Strategy::ManualStub,
+        );
+        assert!(
+            result.warnings.iter().any(|w| w.message.contains("dependency")),
+        );
+    }
+
+    #[test]
+    fn test_map_dependency_type_std_not_dep() {
+        // std:: types should NOT be treated as dependencies
+        use crate::dependency_resolver::CargoLockInfo;
+
+        let info = CargoLockInfo::default();
+
+        let result = map_type_with_full_context(
+            "std::collections::HashMap",
+            "test",
+            None,
+            Some(&info),
+        );
+        assert_eq!(
+            result.pyo3_strategy,
+            PyO3Strategy::PyClass,
+            "std types should fall back to PyClass, not ManualStub"
+        );
+    }
+
+    #[test]
+    fn test_map_dependency_type_unknown_not_dep() {
+        // A type with :: but from an unknown crate should fall back to PyClass
+        use crate::dependency_resolver::CargoLockInfo;
+
+        let info = CargoLockInfo::default();
+
+        let result = map_type_with_full_context(
+            "unknown_crate::SomeType",
+            "test",
+            None,
+            Some(&info),
+        );
+        assert_eq!(
+            result.pyo3_strategy,
+            PyO3Strategy::PyClass,
+            "Unknown crate types should fall back to PyClass"
+        );
+    }
+
+    #[test]
+    fn test_map_dependency_type_unaffected_with_config() {
+        // If the config has a mapping for a dependency type, it should be used
+        // instead of the dependency fallback
+        use crate::config::{TypeMappingEntry, VertumnusConfig};
+        use crate::dependency_resolver::CargoLockInfo;
+        use std::collections::HashMap;
+
+        let mut mappings = HashMap::new();
+        mappings.insert(
+            "url::Url".to_string(),
+            TypeMappingEntry {
+                python: "str".to_string(),
+                strategy: "native".to_string(),
+            },
+        );
+        let config = VertumnusConfig {
+            type_mappings: mappings,
+        };
+
+        let mut info = CargoLockInfo::default();
+        info.add_dep("url", "2.3.4");
+
+        let result = map_type_with_full_context(
+            "url::Url",
+            "test",
+            Some(&config),
+            Some(&info),
+        );
+        // Config mapping should take priority over dependency fallback
+        assert_eq!(
+            result.python_type, "str",
+            "Config mapping should take priority over dependency fallback"
+        );
+        assert_eq!(result.pyo3_strategy, PyO3Strategy::Native);
+        assert!(
+            !result.warnings.iter().any(|w| w.message.contains("dependency")),
+            "Should not have dependency warning when config provides mapping"
+        );
     }
 
     #[test]

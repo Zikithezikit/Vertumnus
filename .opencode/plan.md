@@ -2,8 +2,8 @@
 
 > **Goal:** Make Vertumnus work for arbitrary Rust crates dynamically and scalably.
 > **Date:** 2026-06-15
-> **Status:** Active — Sprint 3 (A1 ✅, C1 ✅, A2 ✅, B1 ✅, C2 ✅)
-> Next: A3 — Dependency-aware type resolution
+> **Status:** Active — Sprint 3 (A1 ✅, C1 ✅, A2 ✅, B1 ✅, C2 ✅, A3 ✅)
+> Next: D1 — Community type registry
 
 ---
 
@@ -275,7 +275,7 @@ Load plugins via `dlopen` (`libloading`) or WASM. Ships separately from Vertumnu
 | 3 | **B1 — Auto-detect monomorphization** ✅ | Fewer ManualStubs for generic-heavy crates | 2–3 days → done |
 | 4 | **A2 — `syn` fallback for stable Rust** ✅ | Works on every crate, not just nightly | 3–5 days → done |
 | 5 | **C2 — Incremental cache** ✅ | 10–50× faster re-wraps | 2–3 days → done |
-| 6 | **A3 — Dependency-aware type resolution** | Handles re-exports and dependency types | 3–4 days |
+| 6 | **A3 — Dependency-aware type resolution** ✅ | Handles re-exports and dependency types | 3–4 days → done |
 | 7 | **E1 — Async function support** | Unlocks ~40% of modern Rust crates | 3–5 days |
 | 8 | **E2 — Data-carrying enum support** | Handles another major ManualStub source | 3–5 days |
 | 9 | **D1 — Community type registry** | Builds a flywheel effect | 3–4 days |

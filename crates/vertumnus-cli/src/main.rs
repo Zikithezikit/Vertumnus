@@ -263,7 +263,11 @@ fn main() -> anyhow::Result<()> {
                         eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
                     }
                     let config = load_config(config.as_deref(), &path)?;
-                    let annotated = vertumnus_mapper::map_ir_with_config(&ir, config.as_ref())?;
+                    let annotated = vertumnus_mapper::map_ir_with_full_context(
+                        &ir,
+                        config.as_ref(),
+                        Some(&canonical_path),
+                    )?;
                     if let Err(e) = cache.save_annotated_ir(&annotated) {
                         if verbose {
                             eprintln!("  ℹ️  Cache write skipped: {e}");
@@ -276,7 +280,11 @@ fn main() -> anyhow::Result<()> {
                     eprintln!("🗺️  Running type mapper on {} items...", ir.items.len());
                 }
                 let config = load_config(config.as_deref(), &path)?;
-                vertumnus_mapper::map_ir_with_config(&ir, config.as_ref())?
+                vertumnus_mapper::map_ir_with_full_context(
+                    &ir,
+                    config.as_ref(),
+                    Some(&canonical_path),
+                )?
             };
 
             if dry_run {

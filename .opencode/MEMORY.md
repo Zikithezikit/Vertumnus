@@ -296,16 +296,26 @@ docs/limitations.md                                   # Known limitations (NEW)
 
 ## Scaling Plan (`.opencode/plan.md`)
 
-A forward-looking roadmap was created on 2026-06-15 to make Vertumnus work for arbitrary Rust crates dynamically and scalably.
+A forward-looking roadmap was created on 2026-06-15. Sprint progress:
 
-**Key areas addressed:**
-- **Phase A** — Config-file type mappings, stable Rust (`syn`) fallback, dependency-aware type resolution
-- **Phase B** — Auto-detect monomorphization from public API, user-provided monomorphization hints
-- **Phase C** — Parallel pipeline, incremental caching, streaming IR for huge crates
-- **Phase D** — Community type registry, batch wrapping, compatibility dashboard
-- **Phase E** — Async support, data-carrying enums, cross-crate workspaces, plugin system
+- **Sprint 1** ✅ A1 (Config file type mappings) + C1 (Parallel pipeline)
+- **Sprint 2** ✅ A2 (syn fallback) + B1 (Auto-detect monomorphization) + C2 (Incremental cache)
+- **Sprint 3** 🏗️ A3 (Dependency-aware type resolution) ✅ — Next: D1 (Community type registry)
+- **Sprint 4** 🕐 E1 (Async), E2 (Data-carrying enums)
+- **Sprint 5** 🕐 D2, E3, B2, B3, C3, E4
 
-**Recommended first sprint:** `A1` (config file type mappings) + `C1` (parallel pipeline) — highest impact per effort.
+**Sprint 3 — A3 (Dependency-aware type resolution):**
+- New module `dependency_resolver.rs` — parses `Cargo.lock`, identifies dependency crate names
+- `extract_crate_name()` — extracts first `::` segment from fully-qualified types (e.g., `url::Url` → `url`)
+- `load_cargo_lock()` — reads Cargo.lock, builds lookup table (case-insensitive)
+- `format_dependency_warning()` — user-friendly message suggesting `.vertumnus/config.toml` mapping
+- `map_type_with_full_context()` — new public function extending `map_type_with_config` with dep info
+- `map_ir_with_full_context()` — new public function extending `map_ir_with_config` with crate path
+- CLI `wrap` command passes crate path → mapper loads Cargo.lock automatically
+- Dependency types fall back to `Bound<'_, PyAny>` (ManualStub) with helpful warning
+- Config registry takes priority over dependency fallback
+- `std`/`core`/`alloc` excluded from dependency detection
+- 17 new tests (12 dependency_resolver + 5 type_parser dep-aware)
 
 ---
 

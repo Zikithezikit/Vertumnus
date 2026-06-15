@@ -4,6 +4,8 @@
 //! It takes an [`IntermediateRepresentation`] and produces an [`AnnotatedIr`]
 //! by mapping every type in every item to its Python equivalent.
 
+use std::path::Path;
+
 use rayon::prelude::*;
 use vertumnus_inspector::ir::{
     EnumItem, FunctionItem, ImplItem, IntermediateRepresentation, IrItem, StructItem, TraitItem,
@@ -11,8 +13,9 @@ use vertumnus_inspector::ir::{
 
 use crate::annotated_ir::{AnnotatedIr, AnnotatedItem, MappingWarning, PyO3Strategy, TypeMapping};
 use crate::config::VertumnusConfig;
+use crate::dependency_resolver::{self, CargoLockInfo};
 use crate::monomorphization::detect_and_generate_concrete_wrappers;
-use crate::type_parser::{map_type_with_config, MappedType};
+use crate::type_parser::{map_type_with_full_context, MappedType};
 
 /// Errors that can occur during type mapping.
 #[derive(Debug, thiserror::Error)]
@@ -44,13 +47,38 @@ pub fn map_ir_with_config(
     ir: &IntermediateRepresentation,
     config: Option<&VertumnusConfig>,
 ) -> Result<AnnotatedIr, MapError> {
+    map_ir_with_full_context(ir, config, None)
+}
+
+/// Map an entire IR with full context (config + crate path for dependency resolution).
+///
+/// Extends [`map_ir_with_config`] with dependency-aware type resolution.
+/// When `crate_dir` is provided, reads `Cargo.lock` from that directory to
+/// identify fully-qualified types from dependencies and produce better
+/// fallback mappings.
+///
+/// # Arguments
+/// * `ir` - The Intermediate Representation from Phase 1
+/// * `config` - Optional user config with custom type mappings
+/// * `crate_dir` - Optional path to the crate root for reading `Cargo.lock`
+///
+/// # Returns
+/// * `AnnotatedIr` - The annotated IR with type mappings for every item
+pub fn map_ir_with_full_context(
+    ir: &IntermediateRepresentation,
+    config: Option<&VertumnusConfig>,
+    crate_dir: Option<&Path>,
+) -> Result<AnnotatedIr, MapError> {
+    // Load Cargo.lock for dependency-aware type resolution (best-effort)
+    let deps = crate_dir.and_then(dependency_resolver::load_cargo_lock);
+
     let mut annotated = AnnotatedIr::new(ir.crate_name.clone(), ir.crate_version.clone());
 
     // Map items in parallel — each item is independent
     annotated.items = ir
         .items
         .par_iter()
-        .map(|item| map_item(item, config))
+        .map(|item| map_item(item, config, deps.as_ref()))
         .collect();
 
     // B1: Auto-detect monomorphization — generate concrete wrapper items
@@ -64,27 +92,35 @@ pub fn map_ir_with_config(
 }
 
 /// Map a single IR item to an annotated item.
-fn map_item(item: &IrItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
+fn map_item(
+    item: &IrItem,
+    config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
+) -> AnnotatedItem {
     match item {
-        IrItem::Function(f) => map_function(f, config),
-        IrItem::Struct(s) => map_struct(s, config),
-        IrItem::Enum(e) => map_enum(e, config),
-        IrItem::Trait(t) => map_trait(t, config),
-        IrItem::Impl(i) => map_impl(i, config),
+        IrItem::Function(f) => map_function(f, config, deps),
+        IrItem::Struct(s) => map_struct(s, config, deps),
+        IrItem::Enum(e) => map_enum(e, config, deps),
+        IrItem::Trait(t) => map_trait(t, config, deps),
+        IrItem::Impl(i) => map_impl(i, config, deps),
     }
 }
 
 /// Map a function item.
-fn map_function(func: &FunctionItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
+fn map_function(
+    func: &FunctionItem,
+    config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
+) -> AnnotatedItem {
     let mut warnings = Vec::new();
 
     // Map inputs
     let input_mappings: Vec<MappedType> = func
         .inputs
-        .iter()
+        .par_iter()
         .map(|param| {
             let loc = format!("{}.{}", func.name, param.name);
-            map_type_with_config(&param.type_str, &loc, config)
+            map_type_with_full_context(&param.type_str, &loc, config, deps)
         })
         .collect();
 
@@ -112,7 +148,7 @@ fn map_function(func: &FunctionItem, config: Option<&VertumnusConfig>) -> Annota
 
     // Map return type
     let output_location = format!("{}.return_type", func.name);
-    let output_mapping = map_type_with_config(&func.output.type_str, &output_location, config);
+    let output_mapping = map_type_with_full_context(&func.output.type_str, &output_location, config, deps);
     warnings.extend(output_mapping.warnings.clone());
 
     // Build output python type string
@@ -178,7 +214,11 @@ fn map_function(func: &FunctionItem, config: Option<&VertumnusConfig>) -> Annota
 }
 
 /// Map a struct item.
-fn map_struct(s: &StructItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
+fn map_struct(
+    s: &StructItem,
+    config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
+) -> AnnotatedItem {
     let mut warnings = Vec::new();
 
     // Map each field
@@ -187,7 +227,7 @@ fn map_struct(s: &StructItem, config: Option<&VertumnusConfig>) -> AnnotatedItem
         .iter()
         .map(|field| {
             let loc = format!("{}.{}", s.name, field.name);
-            let mapped = map_type_with_config(&field.type_str, &loc, config);
+            let mapped = map_type_with_full_context(&field.type_str, &loc, config, deps);
             (field.name.clone(), mapped)
         })
         .collect();
@@ -252,7 +292,7 @@ fn map_struct(s: &StructItem, config: Option<&VertumnusConfig>) -> AnnotatedItem
 
     // Also map methods
     for method in &s.methods {
-        let method_warnings = map_function_method_warnings(method, &s.name, config);
+        let method_warnings = map_function_method_warnings(method, &s.name, config, deps);
         warnings.extend(method_warnings);
     }
 
@@ -269,7 +309,11 @@ fn map_struct(s: &StructItem, config: Option<&VertumnusConfig>) -> AnnotatedItem
 }
 
 /// Map an enum item.
-fn map_enum(e: &EnumItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
+fn map_enum(
+    e: &EnumItem,
+    config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
+) -> AnnotatedItem {
     let mut warnings = Vec::new();
 
     // Determine if this is a C-like enum (no fields on any variant)
@@ -279,7 +323,7 @@ fn map_enum(e: &EnumItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
     for variant in &e.variants {
         for field in &variant.fields {
             let loc = format!("{}.{}.{}", e.name, variant.name, field.name);
-            let mapped = map_type_with_config(&field.type_str, &loc, config);
+            let mapped = map_type_with_full_context(&field.type_str, &loc, config, deps);
             for w in &mapped.warnings {
                 warnings.push(w.clone());
             }
@@ -346,7 +390,7 @@ fn map_enum(e: &EnumItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
                     .iter()
                     .map(|f| {
                         let loc = format!("{}.{}.{}", e.name, v.name, f.name);
-                        let mapped = map_type_with_config(&f.type_str, &loc, config);
+                        let mapped = map_type_with_full_context(&f.type_str, &loc, config, deps);
                         mapped.python_type
                     })
                     .collect();
@@ -363,7 +407,7 @@ fn map_enum(e: &EnumItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
 
     // Also map methods
     for method in &e.methods {
-        let method_warnings = map_function_method_warnings(method, &e.name, config);
+        let method_warnings = map_function_method_warnings(method, &e.name, config, deps);
         warnings.extend(method_warnings);
     }
 
@@ -380,7 +424,11 @@ fn map_enum(e: &EnumItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
 }
 
 /// Map a trait item (informational — limited binding generation).
-fn map_trait(t: &TraitItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
+fn map_trait(
+    t: &TraitItem,
+    config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
+) -> AnnotatedItem {
     let mut warnings = vec![MappingWarning {
         message: format!(
             "Trait '{}' has limited binding support in v1. Methods may need manual wrapping.",
@@ -391,7 +439,7 @@ fn map_trait(t: &TraitItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
 
     // Map methods
     for method in &t.methods {
-        let method_warnings = map_function_method_warnings(method, &t.name, config);
+        let method_warnings = map_function_method_warnings(method, &t.name, config, deps);
         warnings.extend(method_warnings);
     }
 
@@ -408,12 +456,16 @@ fn map_trait(t: &TraitItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
 }
 
 /// Map an impl block item.
-fn map_impl(i: &ImplItem, config: Option<&VertumnusConfig>) -> AnnotatedItem {
+fn map_impl(
+    i: &ImplItem,
+    config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
+) -> AnnotatedItem {
     let mut warnings = Vec::new();
 
     // Map methods
     for method in &i.methods {
-        let method_warnings = map_function_method_warnings(method, &i.type_name, config);
+        let method_warnings = map_function_method_warnings(method, &i.type_name, config, deps);
         warnings.extend(method_warnings);
     }
 
@@ -445,18 +497,19 @@ fn map_function_method_warnings(
     func: &FunctionItem,
     parent_name: &str,
     config: Option<&VertumnusConfig>,
+    deps: Option<&CargoLockInfo>,
 ) -> Vec<MappingWarning> {
     let mut warnings = Vec::new();
     let location_prefix = format!("{}.{}", parent_name, func.name);
 
     for param in &func.inputs {
         let loc = format!("{}.{}", location_prefix, param.name);
-        let mapped = map_type_with_config(&param.type_str, &loc, config);
+        let mapped = map_type_with_full_context(&param.type_str, &loc, config, deps);
         warnings.extend(mapped.warnings);
     }
 
     let ret_loc = format!("{}.return_type", location_prefix);
-    let ret_mapped = map_type_with_config(&func.output.type_str, &ret_loc, config);
+    let ret_mapped = map_type_with_full_context(&func.output.type_str, &ret_loc, config, deps);
     warnings.extend(ret_mapped.warnings);
 
     warnings
